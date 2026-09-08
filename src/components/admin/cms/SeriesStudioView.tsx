@@ -347,7 +347,7 @@ export const SeriesStudioView: React.FC<Props> = ({
 
         <div className="flex items-center gap-2">
           <Link
-            href={`/series/${encodeURIComponent(series.slug)}`}
+            href={`https://yotba.vercel.app/series/${encodeURIComponent(series.slug)}`}
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-surface-elevated hover:bg-border-subtle border border-border-subtle text-editorial-secondary hover:text-editorial-ivory text-xs transition-colors"
@@ -451,7 +451,7 @@ export const SeriesStudioView: React.FC<Props> = ({
             </div>
             <div className="flex items-center gap-1.5">
               <Clock size={15} className="text-editorial-muted" />
-              <span>الرابط: <code className="text-editorial-ivory">/series/{series.slug}</code></span>
+              <span>الرابط: <a href={`https://yotba.vercel.app/series/${encodeURIComponent(series.slug)}`} target="_blank" rel="noopener noreferrer" className="text-editorial-ivory hover:text-crimson underline underline-offset-4">/series/{series.slug}</a></span>
             </div>
           </div>
         </div>

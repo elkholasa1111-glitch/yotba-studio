@@ -214,7 +214,7 @@ export const AdminDashboardView: React.FC = () => {
             {isMobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
           </button>
 
-          <Link href="/admin" className="flex items-center gap-2">
+          <Link href="/" className="flex items-center gap-2">
             <span className="w-8 h-8 rounded-lg bg-crimson flex items-center justify-center text-white font-black font-display text-base shadow-halo">
               يـ
             </span>
