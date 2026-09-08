@@ -1,0 +1,304 @@
+'use client';
+
+import React, { useState, useEffect } from 'react';
+import Image from 'next/image';
+import {
+  Film,
+  Plus,
+  Pencil,
+  Trash2,
+  Layers,
+  Sparkles,
+  Eye,
+  Check,
+  Search,
+  ExternalLink,
+  Radio,
+} from 'lucide-react';
+import type { AdminSeriesDTO } from '../cms/shared';
+import { SeriesEditor } from '../cms/SeriesEditor';
+import { ConfirmDialog } from '../cms/ConfirmDialog';
+import { SeriesStudioView } from '../cms/SeriesStudioView';
+import { adminApi } from '../cms/shared';
+
+interface Props {
+  seriesList: AdminSeriesDTO[];
+  initialSeriesId?: string | null;
+  initialSeasonId?: string | null;
+  initialEpisodeId?: string | null;
+  onRefresh: () => Promise<void>;
+  showNotice: (type: 'success' | 'error', msg: string) => void;
+  onManageSeasons: (seriesId: string) => void;
+}
+
+export const AdminSeriesView: React.FC<Props> = ({
+  seriesList,
+  initialSeriesId,
+  initialSeasonId,
+  initialEpisodeId,
+  onRefresh,
+  showNotice,
+  onManageSeasons,
+}) => {
+  const [searchTerm, setSearchTerm] = useState('');
+  const [studioSeriesId, setStudioSeriesId] = useState<string | null>(initialSeriesId || null);
+  const [editingSeries, setEditingSeries] = useState<AdminSeriesDTO | null | 'NEW'>(null);
+  const [deletingSeries, setDeletingSeries] = useState<AdminSeriesDTO | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  useEffect(() => {
+    if (initialSeriesId) {
+      setStudioSeriesId(initialSeriesId);
+    }
+  }, [initialSeriesId]);
+
+  // Find active studio series
+  const studioSeries = studioSeriesId ? seriesList.find((s) => s._id === studioSeriesId) : null;
+
+  if (studioSeries) {
+    return (
+      <SeriesStudioView
+        series={studioSeries}
+        initialSeasonId={initialSeasonId}
+        initialEpisodeId={initialEpisodeId}
+        onBack={() => setStudioSeriesId(null)}
+        onRefresh={onRefresh}
+        showNotice={showNotice}
+      />
+    );
+  }
+
+  const filteredSeries = seriesList.filter(
+    (s) =>
+      s.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      s.slug.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (s.genres || []).some((g) => g.includes(searchTerm))
+  );
+
+  const handleDeleteSeries = async () => {
+    if (!deletingSeries) return;
+    setIsDeleting(true);
+    try {
+      const res = await adminApi<{ success: boolean }>(
+        `/api/v1/admin/content?entity=series&id=${deletingSeries._id}&cascade=true`,
+        { method: 'DELETE' }
+      );
+      if (res.ok) {
+        showNotice('success', `تم حذف المسلسل «${deletingSeries.title}» بنجاح`);
+        await onRefresh();
+        setDeletingSeries(null);
+      } else {
+        showNotice('error', res.error || 'فشل حذف المسلسل');
+      }
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* 1. الترويسة وأزرار الإجراء السريع */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4 rounded-2xl bg-surface border border-border-subtle">
+        <div className="space-y-1">
+          <h2 className="text-lg font-bold text-editorial-ivory flex items-center gap-2">
+            <Film size={20} className="text-crimson" />
+            <span>إدارة المسلسلات الدرامية</span>
+          </h2>
+          <p className="text-xs text-editorial-muted">
+            إجمالي {seriesList.length} أعمال صوتية مسجلة في المنصة
+          </p>
+        </div>
+
+        <div className="flex items-center gap-3 w-full sm:w-auto">
+          {/* حقل البحث السريع */}
+          <div className="relative flex-1 sm:w-64">
+            <Search size={15} className="absolute start-3 top-1/2 -translate-y-1/2 text-editorial-muted" />
+            <input
+              type="text"
+              placeholder="بحث عن مسلسل أو تصنيف..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full min-h-10 ps-9 pe-3 rounded-xl bg-surface-elevated border border-border-subtle text-xs text-editorial-ivory placeholder:text-editorial-muted focus:outline-none focus:border-crimson"
+            />
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setEditingSeries('NEW')}
+            className="min-h-10 px-4 rounded-xl bg-crimson hover:bg-crimson-bright text-white text-xs font-bold flex items-center gap-2 shadow-halo shrink-0 transition-transform active:scale-95"
+          >
+            <Plus size={16} />
+            <span>مسلسل جديد</span>
+          </button>
+        </div>
+      </div>
+
+      {/* 2. شبكة بطاقات المسلسلات الفخمة */}
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+        {filteredSeries.map((series) => {
+          const totalEpisodes = (series.seasons || []).reduce(
+            (acc, sz) => acc + (sz.episodes?.length || 0),
+            0
+          );
+
+          return (
+            <div
+              key={series._id}
+              className="rounded-2xl bg-surface border border-border-subtle hover:border-border-strong overflow-hidden flex flex-col justify-between transition-all duration-300 group shadow-sm"
+            >
+              <div className="p-4 flex gap-4">
+                {/* بوستر العمل المصغر */}
+                <div
+                  onClick={() => setStudioSeriesId(series._id)}
+                  className="relative w-24 h-32 rounded-xl overflow-hidden shrink-0 border border-white/10 bg-black cursor-pointer group-hover:border-crimson/50 transition-colors"
+                  title="انقر لفتح استوديو العمل"
+                >
+                  <Image
+                    src={series.posterUrl}
+                    alt={series.title}
+                    fill
+                    sizes="96px"
+                    className="object-cover group-hover:scale-105 transition-transform duration-500"
+                  />
+                  {series.featured && (
+                    <div className="absolute top-1.5 start-1.5 p-1 rounded-md bg-crimson text-white shadow-halo">
+                      <Sparkles size={11} />
+                    </div>
+                  )}
+                </div>
+
+                {/* بيانات العمل التحريرية */}
+                <div className="flex-1 min-w-0 space-y-1.5 text-right">
+                  <div className="flex items-center gap-1.5">
+                    <span className="px-2 py-0.5 rounded bg-surface-elevated text-[10px] font-bold text-editorial-secondary border border-border-subtle">
+                      {series.contentRating}
+                    </span>
+                    <span className="text-[11px] text-editorial-muted truncate">
+                      {series.productionYear}
+                    </span>
+                  </div>
+
+                  <h3
+                    onClick={() => setStudioSeriesId(series._id)}
+                    className="text-base font-bold font-display text-editorial-ivory truncate group-hover:text-crimson transition-colors cursor-pointer"
+                    title="انقر لفتح استوديو العمل"
+                  >
+                    {series.title}
+                  </h3>
+
+                  <p className="text-xs text-editorial-secondary line-clamp-2 font-reading">
+                    {series.hook}
+                  </p>
+
+                  <div className="flex flex-wrap gap-1 pt-1">
+                    {(series.genres || []).slice(0, 3).map((g) => (
+                      <span
+                        key={g}
+                        className="px-2 py-0.5 rounded-md bg-surface-elevated text-[10px] text-editorial-muted"
+                      >
+                        {g}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* إحصائيات سريعة وأزرار الإجراءات */}
+              <div className="px-4 py-3 border-t border-border-subtle/60 bg-surface-elevated/30 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-3 text-xs text-editorial-muted">
+                  <span>{series.seasons?.length || 0} مواسم</span>
+                  <span>•</span>
+                  <span>{totalEpisodes} حلقة</span>
+                  <span>•</span>
+                  <span className="text-emerald-400 font-medium">
+                    {series.freeEpisodesCount} مجانية
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-1.5">
+                  {/* فتح استوديو المسلسل والمواسم والحلقات */}
+                  <button
+                    type="button"
+                    onClick={() => setStudioSeriesId(series._id)}
+                    className="min-h-8 px-2.5 rounded-lg bg-crimson/15 hover:bg-crimson text-crimson hover:text-white border border-crimson/30 hover:border-crimson text-xs font-bold flex items-center gap-1.5 transition-all shadow-sm"
+                    title="فتح استوديو العمل والمواسم والحلقات"
+                  >
+                    <Radio size={13} />
+                    <span>استوديو العمل</span>
+                  </button>
+
+                  {/* الانتقال المباشر لإدارة مواسم هذا العمل */}
+                  <button
+                    type="button"
+                    onClick={() => onManageSeasons(series._id)}
+                    className="min-h-8 px-2.5 rounded-lg bg-surface hover:bg-surface-elevated border border-border-subtle text-editorial-secondary hover:text-editorial-ivory text-xs flex items-center gap-1 transition-colors"
+                    title="إدارة مواسم وحلقات هذا العمل"
+                  >
+                    <Layers size={13} className="text-amber-400" />
+                    <span>المواسم</span>
+                  </button>
+
+                  {/* تعديل المسلسل */}
+                  <button
+                    type="button"
+                    onClick={() => setEditingSeries(series)}
+                    className="w-8 h-8 rounded-lg bg-surface hover:bg-surface-elevated border border-border-subtle text-editorial-secondary hover:text-editorial-ivory flex items-center justify-center transition-colors"
+                    title="تعديل بيانات وغلاف العمل"
+                  >
+                    <Pencil size={13} />
+                  </button>
+
+                  {/* حذف المسلسل */}
+                  <button
+                    type="button"
+                    onClick={() => setDeletingSeries(series)}
+                    className="w-8 h-8 rounded-lg bg-surface hover:bg-red-950/40 border border-border-subtle hover:border-red-800 text-editorial-secondary hover:text-red-300 flex items-center justify-center transition-colors"
+                    title="حذف المسلسل بالكامل"
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {filteredSeries.length === 0 && (
+        <div className="p-12 text-center rounded-2xl bg-surface border border-border-subtle space-y-3">
+          <Film size={32} className="mx-auto text-editorial-muted" />
+          <p className="text-sm text-editorial-secondary font-medium">
+            لا توجد أعمال تطابق مصطلح البحث
+          </p>
+        </div>
+      )}
+
+      {/* نافذة إنشاء / تعديل المسلسل */}
+      {editingSeries && (
+        <SeriesEditor
+          series={editingSeries === 'NEW' ? null : editingSeries}
+          onClose={() => setEditingSeries(null)}
+          onSaved={async (createdId) => {
+            await onRefresh();
+            setEditingSeries(null);
+            if (createdId) {
+              setStudioSeriesId(createdId);
+            }
+          }}
+          showNotice={showNotice}
+        />
+      )}
+
+      {/* تأكيد حذف المسلسل */}
+      {deletingSeries && (
+        <ConfirmDialog
+          title={`حذف مسلسل «${deletingSeries.title}»`}
+          message={`هل أنت متأكد من حذف هذا المسلسل وجميع مواسمه وحلقاته وملفاته؟ هذا الإجراء نهائي ولا يمكن التراجع عنه.`}
+          confirmLabel={isDeleting ? 'جارٍ الحذف...' : 'تأكيد الحذف النهائي'}
+          onConfirm={handleDeleteSeries}
+          onCancel={() => setDeletingSeries(null)}
+        />
+      )}
+    </div>
+  );
+};

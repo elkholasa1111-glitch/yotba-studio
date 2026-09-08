@@ -1,0 +1,14 @@
+﻿<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="96" fill="#0D0D11"/>
+  <rect width="512" height="512" rx="96" fill="url(#glow)" opacity="0.4"/>
+  <defs>
+    <radialGradient id="glow" cx="50%" cy="0%" r="80%">
+      <stop offset="0%" stop-color="#A8202A"/>
+      <stop offset="100%" stop-color="#0D0D11"/>
+    </radialGradient>
+  </defs>
+  <text x="256" y="290" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif" font-size="180" font-weight="bold" fill="#F8F6F0">يُتبع</text>
+  <circle cx="196" cy="360" r="14" fill="#A8202A"/>
+  <circle cx="256" cy="360" r="14" fill="#A8202A"/>
+  <circle cx="316" cy="360" r="14" fill="#A8202A"/>
+</svg>

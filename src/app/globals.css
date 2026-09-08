@@ -1,0 +1,92 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-ui: var(--font-ibm-plex-arabic), system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-reading: var(--font-amiri), "Noto Naskh Arabic", Georgia, serif;
+  --font-display: var(--font-tajawal), var(--font-ibm-plex-arabic), sans-serif;
+  --bg-primary: #08080B;
+  --bg-surface: #121218;
+  --text-primary: #F8F6F0;
+  --text-secondary: #B4B2AA;
+  --text-muted: #8E8D86;
+  --accent-crimson: #A8202A;
+  --accent-gold: #D4AF37;
+}
+
+body {
+  color: var(--text-primary);
+  background-color: var(--bg-primary);
+  font-family: var(--font-ui);
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+  background-image: 
+    radial-gradient(circle at 50% 0%, rgba(168, 32, 42, 0.12) 0%, transparent 60%),
+    radial-gradient(circle at 10% 20%, rgba(20, 20, 28, 0.8) 0%, transparent 50%),
+    radial-gradient(circle at 90% 80%, rgba(168, 32, 42, 0.06) 0%, transparent 45%);
+  background-attachment: fixed;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 9999;
+  opacity: 0.022;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+}
+
+.cinematic-vignette {
+  box-shadow: inset 0 0 100px rgba(0, 0, 0, 0.85);
+}
+
+.dramatic-glow {
+  box-shadow: 0 0 50px -10px rgba(168, 32, 42, 0.35);
+}
+
+.gold-glow {
+  box-shadow: 0 0 40px -10px rgba(212, 175, 55, 0.3);
+}
+
+:where(a, button, input, textarea, select, [tabindex]):focus-visible {
+  outline: 3px solid #E85A65;
+  outline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #08080B;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #24242F;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #A8202A;
+}
+
+::selection {
+  background: #A8202A;
+  color: #F8F6F0;
+}
