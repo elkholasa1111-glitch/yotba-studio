@@ -114,9 +114,7 @@ export const SeriesStudioView: React.FC<Props> = ({
     const maxNum = episodes.reduce((max, ep) => Math.max(max, ep.episodeNumber || 0), 0);
     const nextNum = maxNum + 1;
     setQuickEpisodeNumber(nextNum);
-    const freeThreshold = typeof series.freeEpisodesCount === 'number' ? series.freeEpisodesCount : 2;
-    setQuickIsFree(nextNum <= freeThreshold);
-  }, [episodes, series.freeEpisodesCount]);
+  }, [episodes]);
 
   // Audio Preview state
   const [playingPreviewId, setPlayingPreviewId] = useState<string | null>(null);
@@ -178,6 +176,20 @@ export const SeriesStudioView: React.FC<Props> = ({
   // Toggle Free / Locked for episode
   const [togglingFreeId, setTogglingFreeId] = useState<string | null>(null);
   const handleToggleFree = async (ep: AdminEpisodeDTO) => {
+    const isPolicyFree = Boolean(
+      typeof series.freeEpisodesCount === 'number' &&
+      series.freeEpisodesCount > 0 &&
+      ep.episodeNumber <= series.freeEpisodesCount
+    );
+
+    if (isPolicyFree) {
+      showNotice(
+        'error',
+        `الحلقة «${ep.title}» مشمولة تلقائياً بسياسة أول ${series.freeEpisodesCount} حلقات مجانية للمسلسل ولا يمكن قفلها بشكل فردي`
+      );
+      return;
+    }
+
     setTogglingFreeId(ep._id);
     const nextFree = !ep.isFree;
     try {
@@ -311,6 +323,7 @@ export const SeriesStudioView: React.FC<Props> = ({
       setQuickAudioUrl('');
       setQuickAudioKey('');
       setQuickDurationSecs(0);
+      setQuickIsFree(false);
       setShowQuickAddEpisode(false);
       await onRefresh();
     } catch {
@@ -670,9 +683,7 @@ export const SeriesStudioView: React.FC<Props> = ({
                         max="1000"
                         value={quickEpisodeNumber}
                         onChange={(e) => {
-                          const num = Number(e.target.value);
-                          setQuickEpisodeNumber(num);
-                          setQuickIsFree(num <= (series.freeEpisodesCount || 2));
+                          setQuickEpisodeNumber(Number(e.target.value));
                         }}
                         className="w-full min-h-11 bg-surface-elevated border border-border-subtle rounded-xl p-2.5 text-xs text-editorial-ivory focus:outline-none focus:border-crimson focus-visible:ring-2 focus-visible:ring-crimson"
                       />
@@ -680,15 +691,32 @@ export const SeriesStudioView: React.FC<Props> = ({
                   </div>
 
                   <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pt-2">
-                    <label className="min-h-11 flex items-center gap-2 text-xs text-editorial-secondary cursor-pointer select-none">
-                      <input
-                        type="checkbox"
-                        checked={quickIsFree}
-                        onChange={(e) => setQuickIsFree(e.target.checked)}
-                        className="w-4 h-4 accent-[#A8202A] rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson"
-                      />
-                      <span>حلقة مجانية (متاحة للجميع دون اشتراك)</span>
-                    </label>
+                    {(() => {
+                      const isCoveredByPolicy = Boolean(
+                        typeof series.freeEpisodesCount === 'number' &&
+                        series.freeEpisodesCount > 0 &&
+                        quickEpisodeNumber > 0 &&
+                        quickEpisodeNumber <= series.freeEpisodesCount
+                      );
+                      return (
+                        <div className="space-y-1">
+                          <label className="min-h-11 flex items-center gap-2 text-xs text-editorial-secondary cursor-pointer select-none">
+                            <input
+                              type="checkbox"
+                              checked={quickIsFree}
+                              onChange={(e) => setQuickIsFree(e.target.checked)}
+                              className="w-4 h-4 accent-[#A8202A] rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson"
+                            />
+                            <span>حلقة مجانية صريحة (تجاوز مستقل عن سياسة المسلسل)</span>
+                          </label>
+                          {isCoveredByPolicy && (
+                            <p className="text-[10px] text-emerald-400/90 ps-6">
+                              ملاحظة: الحلقة {quickEpisodeNumber} مشمولة تلقائياً بسياسة أول {series.freeEpisodesCount} حلقات مجانية للمسلسل.
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })()}
 
                     <div className="flex items-center gap-2 w-full sm:w-auto">
                       <button
@@ -750,9 +778,10 @@ export const SeriesStudioView: React.FC<Props> = ({
                 {episodes.map((ep) => {
                   const isAudioPreviewing = playingPreviewId === ep._id;
                   const isAudioLoading = previewLoadingId === ep._id;
-                  const isFreePolicy = typeof series.freeEpisodesCount === 'number'
+                  const isPolicyFree = typeof series.freeEpisodesCount === 'number' && series.freeEpisodesCount > 0
                     ? ep.episodeNumber <= series.freeEpisodesCount
                     : false;
+                  const isEffectivelyFree = ep.isFree || isPolicyFree;
 
                   return (
                     <div
@@ -819,28 +848,40 @@ export const SeriesStudioView: React.FC<Props> = ({
                         {/* زر تبديل المجانية بنقرة واحدة */}
                         <button
                           type="button"
-                          disabled={togglingFreeId === ep._id}
+                          disabled={togglingFreeId === ep._id || isPolicyFree}
                           onClick={() => handleToggleFree(ep)}
                           className={`min-h-11 px-2.5 py-1 rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson ${
-                            ep.isFree
-                              ? 'bg-emerald-950/40 text-emerald-400 border border-emerald-800 hover:bg-emerald-900/50'
+                            isEffectivelyFree
+                              ? isPolicyFree
+                                ? 'bg-emerald-950/20 text-emerald-400/90 border border-emerald-800/40 cursor-not-allowed'
+                                : 'bg-emerald-950/40 text-emerald-400 border border-emerald-800 hover:bg-emerald-900/50'
                               : 'bg-surface-elevated text-editorial-muted border border-border-subtle hover:text-editorial-ivory'
                           }`}
-                          title="انقر لتبديل حالة المجانية"
-                          aria-label={`تبديل وصول الحلقة ${ep.episodeNumber}`}
+                          title={
+                            isPolicyFree
+                              ? `مجانية تلقائياً وفقاً لسياسة أول ${series.freeEpisodesCount} حلقات مجانية للمسلسل`
+                              : 'انقر لتبديل حالة المجانية'
+                          }
+                          aria-label={
+                            isPolicyFree
+                              ? `الحلقة ${ep.episodeNumber} مجانية تلقائياً وفقاً لسياسة المسلسل`
+                              : ep.isFree
+                              ? `إغلاق مجانية الحلقة ${ep.episodeNumber}`
+                              : `فتح مجانية الحلقة ${ep.episodeNumber}`
+                          }
                         >
                           {togglingFreeId === ep._id ? (
                             <Loader2 size={11} className="animate-spin" />
-                          ) : ep.isFree ? (
+                          ) : isEffectivelyFree ? (
                             <Unlock size={11} />
                           ) : (
                             <Lock size={11} />
                           )}
                           <span>
-                            {ep.isFree
-                              ? isFreePolicy
-                                ? 'مجانية (تلقائي)'
-                                : 'مجانية'
+                            {isPolicyFree
+                              ? 'مجانية (تلقائي)'
+                              : ep.isFree
+                              ? 'مجانية'
                               : 'مدفوعة'}
                           </span>
                         </button>

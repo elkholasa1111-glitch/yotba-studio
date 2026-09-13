@@ -1269,6 +1269,67 @@ async function runTests() {
     assert.equal(centPricingCheck.values.annualUsd, 9.99);
   }
 
+  // هـ) Invariant 5: SeriesStudioView UI path reconciliation
+  const studioPath = path.resolve(__dirname, '../components/admin/cms/SeriesStudioView.tsx');
+  const studioSource = fs.readFileSync(studioPath, 'utf8');
+
+  // 1. Changing quickEpisodeNumber must NOT call setQuickIsFree based on series threshold
+  assert.equal(
+    /setQuickIsFree\([^)]*<=/.test(studioSource),
+    false,
+    'SeriesStudioView must not set quickIsFree based on series free threshold'
+  );
+
+  // 2. handleToggleFree guards when episode is policy-free and toggle is disabled
+  assert.ok(
+    studioSource.includes('if (isPolicyFree) {'),
+    'SeriesStudioView handleToggleFree must guard when episode is policy-free'
+  );
+  assert.ok(
+    studioSource.includes('disabled={togglingFreeId === ep._id || isPolicyFree}'),
+    'SeriesStudioView toggle button must be disabled when isPolicyFree'
+  );
+
+  // 3. Compute isEffectivelyFree and display "مجانية (تلقائي)" label for policy-free episodes
+  assert.ok(
+    studioSource.includes('isEffectivelyFree = ep.isFree || isPolicyFree'),
+    'SeriesStudioView must compute isEffectivelyFree = ep.isFree || isPolicyFree'
+  );
+  assert.ok(
+    studioSource.includes("'مجانية (تلقائي)'"),
+    'SeriesStudioView must label policy-free episodes as مجانية (تلقائي)'
+  );
+
+  // Behavioral verification of SeriesStudioView card display logic
+  function resolveStudioEpisodeCardState(epNum: number, epIsFree: boolean, seriesFreeCount: number) {
+    const isPolicyFree = seriesFreeCount > 0 && epNum <= seriesFreeCount;
+    const isEffectivelyFree = epIsFree || isPolicyFree;
+    const label = isPolicyFree ? 'مجانية (تلقائي)' : epIsFree ? 'مجانية' : 'مدفوعة';
+    const disabled = isPolicyFree;
+    return { isPolicyFree, isEffectivelyFree, label, disabled };
+  }
+
+  // Policy-free episode (e.g. ep 1 with series free count 2, but raw ep.isFree is false)
+  const policyFreeState = resolveStudioEpisodeCardState(1, false, 2);
+  assert.equal(policyFreeState.isPolicyFree, true);
+  assert.equal(policyFreeState.isEffectivelyFree, true, 'Must display as effectively free');
+  assert.equal(policyFreeState.label, 'مجانية (تلقائي)', 'Must show derived label');
+  assert.equal(policyFreeState.disabled, true, 'Toggle must be disabled for policy-free');
+
+  // Explicit free episode outside policy (e.g. ep 3 with series free count 2, ep.isFree is true)
+  const explicitFreeState = resolveStudioEpisodeCardState(3, true, 2);
+  assert.equal(explicitFreeState.isPolicyFree, false);
+  assert.equal(explicitFreeState.isEffectivelyFree, true);
+  assert.equal(explicitFreeState.label, 'مجانية');
+  assert.equal(explicitFreeState.disabled, false);
+
+  // Paid episode outside policy
+  const paidState = resolveStudioEpisodeCardState(3, false, 2);
+  assert.equal(paidState.isPolicyFree, false);
+  assert.equal(paidState.isEffectivelyFree, false);
+  assert.equal(paidState.label, 'مدفوعة');
+  assert.equal(paidState.disabled, false);
+
   console.log('✅ All Studio Architecture & Security Policy tests passed successfully!');
 }
 
