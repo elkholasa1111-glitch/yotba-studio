@@ -17,6 +17,7 @@ import {
   writeOperationsAudit,
   parseAdminJsonBody,
 } from '@/lib/admin/operations-api';
+import { getPublicPlatformOrigin, mediaUrlFromStorageKey, normalizeMediaUrl } from '@/lib/media/urls';
 
 const ALLOWED_LAYOUTS = [
   'FEATURE',
@@ -63,7 +64,7 @@ function sanitizeSectionDto(doc: any) {
             _id: s._id.toString(),
             title: s.title,
             slug: s.slug,
-            posterUrl: s.posterUrl,
+            posterUrl: mediaUrlFromStorageKey(normalizeMediaUrl(s.posterUrl), getPublicPlatformOrigin()),
           }))
       : [],
     isVisible: Boolean(doc.isVisible),
@@ -111,7 +112,7 @@ export async function GET() {
       _id: s._id.toString(),
       title: s.title,
       slug: s.slug,
-      posterUrl: s.posterUrl,
+      posterUrl: mediaUrlFromStorageKey(normalizeMediaUrl(s.posterUrl), getPublicPlatformOrigin()),
       isPublished: Boolean(s.publishedAt),
     }));
 

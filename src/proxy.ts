@@ -1,17 +1,20 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Allow static assets, Next internal files, and public branding
+  // Allow static assets, Next internal files, public branding, and public media assets
   if (
     pathname.startsWith('/_next') ||
     pathname.startsWith('/branding') ||
+    pathname.startsWith('/uploads') ||
+    pathname.startsWith('/api/v1/media') ||
     pathname === '/favicon.ico' ||
     pathname === '/login' ||
     pathname === '/admin/login' ||
-    pathname === '/api/v1/admin/auth/login'
+    pathname === '/api/v1/admin/auth/login' ||
+    pathname === '/api/v1/admin/auth/logout'
   ) {
     return NextResponse.next();
   }

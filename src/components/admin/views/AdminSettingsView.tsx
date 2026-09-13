@@ -13,7 +13,15 @@ import {
   RefreshCw,
   Loader2,
   Zap,
+  Link2,
 } from 'lucide-react';
+import {
+  emptySocialLinks,
+  sanitizeSocialLinks,
+  SOCIAL_PLATFORMS,
+  SOCIAL_PLATFORM_LABELS,
+  SocialLinks,
+} from '@/lib/config/social';
 
 interface HealthData {
   status: string;
@@ -49,24 +57,35 @@ export const AdminSettingsView: React.FC<AdminSettingsViewProps> = ({ onNotice }
   });
   const [isLoadingPricing, setIsLoadingPricing] = useState(true);
   const [isSavingPricing, setIsSavingPricing] = useState(false);
+  const [pricingError, setPricingError] = useState<string | null>(null);
 
   const [health, setHealth] = useState<HealthData | null>(null);
   const [isLoadingHealth, setIsLoadingHealth] = useState(true);
+  const [healthError, setHealthError] = useState<string | null>(null);
+
+  const [socialLinks, setSocialLinks] = useState<SocialLinks>(emptySocialLinks);
+  const [isLoadingSocialLinks, setIsLoadingSocialLinks] = useState(true);
+  const [isSavingSocialLinks, setIsSavingSocialLinks] = useState(false);
+  const [socialLinksError, setSocialLinksError] = useState<string | null>(null);
 
   // Fetch Pricing
   const fetchPricing = useCallback(async () => {
+    setIsLoadingPricing(true);
+    setPricingError(null);
     try {
-      const res = await fetch('/api/v1/pricing');
-      if (res.ok) {
-        const data = await res.json();
-        setPricing({
-          seasonUsd: data.seasonUsd ?? 0.5,
-          monthlyUsd: data.monthlyUsd ?? 1,
-          annualUsd: data.annualUsd ?? 10,
-        });
+      const res = await fetch('/api/v1/admin/pricing');
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(data?.error || 'تعذر تحميل الأسعار الحالية');
       }
-    } catch (e) {
-      console.error('Failed to fetch pricing:', e);
+      setPricing({
+        seasonUsd: data?.seasonUsd ?? 0.5,
+        monthlyUsd: data?.monthlyUsd ?? 1,
+        annualUsd: data?.annualUsd ?? 10,
+      });
+    } catch (error) {
+      console.error('Failed to fetch pricing:', error);
+      setPricingError(error instanceof Error ? error.message : 'تعذر تحميل الأسعار الحالية');
     } finally {
       setIsLoadingPricing(false);
     }
@@ -75,29 +94,52 @@ export const AdminSettingsView: React.FC<AdminSettingsViewProps> = ({ onNotice }
   // Fetch Health
   const fetchHealth = useCallback(async () => {
     setIsLoadingHealth(true);
+    setHealthError(null);
     try {
-      const res = await fetch('/api/v1/health');
-      if (res.ok) {
-        const data = await res.json();
-        setHealth(data);
+      const res = await fetch('/api/v1/admin/health');
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(data?.error || 'تعذر فحص الخدمات المتصلة');
       }
-    } catch (e) {
-      console.error('Failed to fetch health:', e);
+      setHealth(data);
+    } catch (error) {
+      console.error('Failed to fetch health:', error);
+      setHealthError(error instanceof Error ? error.message : 'تعذر فحص الخدمات المتصلة');
     } finally {
       setIsLoadingHealth(false);
+    }
+  }, []);
+
+  // Fetch Social Links
+  const fetchSocialLinks = useCallback(async () => {
+    setIsLoadingSocialLinks(true);
+    setSocialLinksError(null);
+    try {
+      const res = await fetch('/api/v1/admin/social-links', { cache: 'no-store' });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(data?.error || 'تعذر تحميل روابط السوشيال ميديا');
+      }
+      setSocialLinks(sanitizeSocialLinks(data?.links));
+    } catch (error) {
+      console.error('Failed to fetch social links:', error);
+      setSocialLinksError(error instanceof Error ? error.message : 'تعذر تحميل روابط السوشيال ميديا');
+    } finally {
+      setIsLoadingSocialLinks(false);
     }
   }, []);
 
   useEffect(() => {
     fetchPricing();
     fetchHealth();
-  }, [fetchPricing, fetchHealth]);
+    fetchSocialLinks();
+  }, [fetchPricing, fetchHealth, fetchSocialLinks]);
 
   const handleSavePricing = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSavingPricing(true);
     try {
-      const res = await fetch('/api/v1/pricing', {
+      const res = await fetch('/api/v1/admin/pricing', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(pricing),
@@ -115,38 +157,75 @@ export const AdminSettingsView: React.FC<AdminSettingsViewProps> = ({ onNotice }
     }
   };
 
+  const handleSaveSocialLinks = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSavingSocialLinks(true);
+    try {
+      const res = await fetch('/api/v1/admin/social-links', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(socialLinks),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setSocialLinks(sanitizeSocialLinks(data?.links));
+        onNotice?.('success', 'تم حفظ روابط السوشيال ميديا وتطبيقها في الفوتر');
+      } else {
+        onNotice?.('error', data?.error || 'فشل حفظ روابط السوشيال ميديا');
+      }
+    } catch {
+      onNotice?.('error', 'تعذر الاتصال بالخادم لحفظ روابط السوشيال ميديا');
+    } finally {
+      setIsSavingSocialLinks(false);
+    }
+  };
+
   return (
-    <div className="space-y-8 animate-fade-in text-right">
+    <div className="space-y-6 animate-fade-in text-right">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border-subtle pb-4">
         <div>
           <h2 className="text-xl font-black font-display text-editorial-ivory flex items-center gap-2">
             <Settings className="w-5 h-5 text-crimson" />
-            إعدادات المنصة والبنية التحتية
+            الإعدادات
           </h2>
           <p className="text-xs text-editorial-secondary mt-1">
-            إدارة الأسعار المركزية، مراقبة صحة قواعد البيانات، والتحقق من موثوقية التخزين السحابي
+            الأسعار وحالة الخدمات
           </p>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Pricing Form */}
-        <div className="bg-surface border border-border-subtle rounded-xl p-6 space-y-6">
+        <div className="bg-surface border border-border-subtle rounded-xl p-5 space-y-5">
           <div className="flex items-center gap-2 text-editorial-ivory border-b border-border-subtle pb-3">
             <DollarSign className="w-4 h-4 text-crimson" />
-            <h3 className="font-bold text-sm">تسعير الاشتراكات والمواسم (USD)</h3>
+            <h3 className="font-bold text-sm">الأسعار (USD)</h3>
           </div>
 
           {isLoadingPricing ? (
             <div className="py-12 flex justify-center">
               <Loader2 className="w-6 h-6 animate-spin text-crimson" />
             </div>
+          ) : pricingError ? (
+            <div className="py-10 text-center space-y-3" role="alert">
+              <AlertCircle className="w-8 h-8 mx-auto text-amber-300" aria-hidden="true" />
+              <p className="text-sm text-amber-100 font-semibold">تعذر تحميل الأسعار</p>
+              <p className="text-xs text-editorial-muted">{pricingError}</p>
+              <button
+                type="button"
+                onClick={fetchPricing}
+                className="min-h-11 px-4 rounded-lg bg-surface-elevated hover:bg-border-subtle border border-border-subtle text-editorial-ivory text-xs font-bold inline-flex items-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson"
+              >
+                <RefreshCw className="w-3.5 h-3.5" aria-hidden="true" />
+                إعادة المحاولة
+              </button>
+            </div>
           ) : (
             <form onSubmit={handleSavePricing} className="space-y-5">
               <div className="space-y-2">
                 <label className="text-xs text-editorial-secondary block font-medium">
-                  سعر شراء الموسم الكامل (دولار):
+                  سعر الموسم الكامل:
                 </label>
                 <div className="relative">
                   <input
@@ -157,18 +236,18 @@ export const AdminSettingsView: React.FC<AdminSettingsViewProps> = ({ onNotice }
                     onChange={(e) =>
                       setPricing({ ...pricing, seasonUsd: parseFloat(e.target.value) || 0 })
                     }
-                    className="w-full bg-surface-elevated border border-border-subtle rounded-lg px-3 py-2.5 text-xs text-editorial-ivory focus:outline-none focus:border-crimson pl-8"
+                    className="w-full min-h-11 bg-surface-elevated border border-border-subtle rounded-lg px-3 py-2.5 text-xs text-editorial-ivory focus:outline-none focus:border-crimson focus-visible:ring-2 focus-visible:ring-crimson pl-8"
                   />
-                  <span className="absolute left-3 top-2.5 text-xs text-editorial-muted">$</span>
+                  <span className="absolute left-3 top-3 text-xs text-editorial-muted">$</span>
                 </div>
                 <p className="text-[11px] text-editorial-muted">
-                  المستخدمون يدفعون هذا السعر لفتح جميع حلقات موسم محدد مدى الحياة.
+                  فتح موسم كامل مدى الحياة.
                 </p>
               </div>
 
               <div className="space-y-2">
                 <label className="text-xs text-editorial-secondary block font-medium">
-                  سعر الاشتراك الشهري (دولار):
+                  الاشتراك الشهري:
                 </label>
                 <div className="relative">
                   <input
@@ -179,18 +258,18 @@ export const AdminSettingsView: React.FC<AdminSettingsViewProps> = ({ onNotice }
                     onChange={(e) =>
                       setPricing({ ...pricing, monthlyUsd: parseFloat(e.target.value) || 0 })
                     }
-                    className="w-full bg-surface-elevated border border-border-subtle rounded-lg px-3 py-2.5 text-xs text-editorial-ivory focus:outline-none focus:border-crimson pl-8"
+                    className="w-full min-h-11 bg-surface-elevated border border-border-subtle rounded-lg px-3 py-2.5 text-xs text-editorial-ivory focus:outline-none focus:border-crimson focus-visible:ring-2 focus-visible:ring-crimson pl-8"
                   />
-                  <span className="absolute left-3 top-2.5 text-xs text-editorial-muted">$</span>
+                  <span className="absolute left-3 top-3 text-xs text-editorial-muted">$</span>
                 </div>
                 <p className="text-[11px] text-editorial-muted">
-                  يتيح الوصول لجميع مسلسلات ومواسم المنصة دون قيود لمدة شهر.
+                  وصول كامل لمدة شهر.
                 </p>
               </div>
 
               <div className="space-y-2">
                 <label className="text-xs text-editorial-secondary block font-medium">
-                  سعر الاشتراك السنوي (دولار):
+                  الاشتراك السنوي:
                 </label>
                 <div className="relative">
                   <input
@@ -201,19 +280,19 @@ export const AdminSettingsView: React.FC<AdminSettingsViewProps> = ({ onNotice }
                     onChange={(e) =>
                       setPricing({ ...pricing, annualUsd: parseFloat(e.target.value) || 0 })
                     }
-                    className="w-full bg-surface-elevated border border-border-subtle rounded-lg px-3 py-2.5 text-xs text-editorial-ivory focus:outline-none focus:border-crimson pl-8"
+                    className="w-full min-h-11 bg-surface-elevated border border-border-subtle rounded-lg px-3 py-2.5 text-xs text-editorial-ivory focus:outline-none focus:border-crimson focus-visible:ring-2 focus-visible:ring-crimson pl-8"
                   />
-                  <span className="absolute left-3 top-2.5 text-xs text-editorial-muted">$</span>
+                  <span className="absolute left-3 top-3 text-xs text-editorial-muted">$</span>
                 </div>
                 <p className="text-[11px] text-editorial-muted">
-                  اشتراك عام كامل مع خصم مشجع للاحتفاظ بالمشتركين.
+                  وصول كامل لمدة عام.
                 </p>
               </div>
 
               <button
                 type="submit"
                 disabled={isSavingPricing}
-                className="w-full min-h-11 bg-crimson hover:bg-crimson-bright text-white text-xs font-bold rounded-lg shadow-halo transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                className="w-full min-h-11 bg-crimson hover:bg-crimson-bright text-white text-xs font-bold rounded-lg shadow-halo transition-all flex items-center justify-center gap-2 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson"
               >
                 {isSavingPricing ? (
                   <>
@@ -232,18 +311,19 @@ export const AdminSettingsView: React.FC<AdminSettingsViewProps> = ({ onNotice }
         </div>
 
         {/* Infrastructure & Health Status */}
-        <div className="bg-surface border border-border-subtle rounded-xl p-6 space-y-6">
+        <div className="bg-surface border border-border-subtle rounded-xl p-5 space-y-5">
           <div className="flex items-center justify-between border-b border-border-subtle pb-3">
             <div className="flex items-center gap-2 text-editorial-ivory">
               <Activity className="w-4 h-4 text-emerald-400" />
-              <h3 className="font-bold text-sm">مراقبة صحة الخوادم والبنية التحتية</h3>
+              <h3 className="font-bold text-sm">حالة الخدمات المتصلة</h3>
             </div>
             <button
               type="button"
               onClick={fetchHealth}
               disabled={isLoadingHealth}
-              className="p-1.5 hover:bg-surface-elevated text-editorial-secondary hover:text-editorial-ivory rounded-md transition-colors"
+              className="min-w-11 min-h-11 flex items-center justify-center hover:bg-surface-elevated text-editorial-secondary hover:text-editorial-ivory rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson"
               title="تحديث البيانات"
+              aria-label="تحديث حالة الخدمات"
             >
               <RefreshCw className={`w-4 h-4 ${isLoadingHealth ? 'animate-spin text-crimson' : ''}`} />
             </button>
@@ -253,19 +333,41 @@ export const AdminSettingsView: React.FC<AdminSettingsViewProps> = ({ onNotice }
             <div className="py-12 flex justify-center">
               <Loader2 className="w-6 h-6 animate-spin text-crimson" />
             </div>
+          ) : healthError ? (
+            <div className="py-10 text-center space-y-3" role="alert">
+              <AlertCircle className="w-8 h-8 mx-auto text-amber-300" aria-hidden="true" />
+              <p className="text-sm text-amber-100 font-semibold">تعذر فحص الخدمات</p>
+              <p className="text-xs text-editorial-muted">{healthError}</p>
+              <button
+                type="button"
+                onClick={fetchHealth}
+                className="min-h-11 px-4 rounded-lg bg-surface-elevated hover:bg-border-subtle border border-border-subtle text-editorial-ivory text-xs font-bold inline-flex items-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson"
+              >
+                <RefreshCw className="w-3.5 h-3.5" aria-hidden="true" />
+                إعادة الفحص
+              </button>
+            </div>
           ) : (
             <div className="space-y-4">
               {/* Overall Status */}
               <div className="flex items-center justify-between p-3.5 bg-surface-elevated rounded-lg border border-border-subtle">
                 <div className="flex items-center gap-2.5">
                   <span
-                    className={`w-3 h-3 rounded-full ${
-                      health?.status === 'ok' ? 'bg-emerald-500 shadow-emerald-500/50 shadow-sm' : 'bg-red-500'
+                      className={`w-3 h-3 rounded-full ${
+                      health?.status === 'ok'
+                        ? 'bg-emerald-500 shadow-emerald-500/50 shadow-sm'
+                        : health
+                          ? 'bg-red-500'
+                          : 'bg-amber-400'
                     }`}
                   />
                   <div>
                     <div className="text-xs font-bold text-editorial-ivory">
-                      {health?.status === 'ok' ? 'المنظومة تعمل بكفاءة تامة' : 'تنبيه: خلل في بعض الخدمات'}
+                      {health?.status === 'ok'
+                        ? 'الخدمات تعمل بكفاءة'
+                        : health
+                          ? 'تنبيه: خلل في بعض الخدمات'
+                          : 'لا تتوفر بيانات الحالة'}
                     </div>
                     <div className="text-[11px] text-editorial-muted">
                       بيئة العمل: {health?.environment || 'production'}
@@ -288,14 +390,16 @@ export const AdminSettingsView: React.FC<AdminSettingsViewProps> = ({ onNotice }
                     className={`px-2 py-0.5 rounded text-[10px] font-bold ${
                       health?.mongodb?.connected
                         ? 'bg-emerald-950/60 text-emerald-400 border border-emerald-800/40'
-                        : 'bg-red-950/60 text-red-400 border border-red-800/40'
+                        : health?.mongodb
+                          ? 'bg-red-950/60 text-red-400 border border-red-800/40'
+                          : 'bg-surface border border-border-subtle text-editorial-muted'
                     }`}
                   >
-                    {health?.mongodb?.connected ? 'متصل' : 'غير متصل'}
+                    {health?.mongodb ? (health.mongodb.connected ? 'متصل' : 'غير متصل') : 'غير معروف'}
                   </span>
                 </div>
                 <div className="flex items-center justify-between text-xs text-editorial-secondary">
-                  <span>زمن الاستجابة (Latency):</span>
+                    <span>زمن الاستجابة:</span>
                   <span className="font-mono text-editorial-ivory">
                     {health?.mongodb?.latencyMs !== undefined ? `${health.mongodb.latencyMs} ms` : '—'}
                   </span>
@@ -318,10 +422,12 @@ export const AdminSettingsView: React.FC<AdminSettingsViewProps> = ({ onNotice }
                     className={`px-2 py-0.5 rounded text-[10px] font-bold ${
                       health?.r2?.connected
                         ? 'bg-emerald-950/60 text-emerald-400 border border-emerald-800/40'
-                        : 'bg-red-950/60 text-red-400 border border-red-800/40'
+                        : health?.r2
+                          ? 'bg-red-950/60 text-red-400 border border-red-800/40'
+                          : 'bg-surface border border-border-subtle text-editorial-muted'
                     }`}
                   >
-                    {health?.r2?.connected ? 'متصل وجاهز' : 'فحص الاتصال'}
+                    {health?.r2 ? (health.r2.connected ? 'متصل وجاهز' : 'غير متصل') : 'غير معروف'}
                   </span>
                 </div>
                 <div className="flex items-center justify-between text-xs text-editorial-secondary">
@@ -332,7 +438,7 @@ export const AdminSettingsView: React.FC<AdminSettingsViewProps> = ({ onNotice }
                 </div>
                 <div className="text-[11px] text-editorial-muted pt-1 border-t border-border-subtle/50 flex items-center gap-1.5">
                   <Zap className="w-3.5 h-3.5 text-amber-400" />
-                  <span>الرفع المباشر مفعل (Presigned PUT) لتوفير البث السريع دون وسطاء.</span>
+                  <span>الرفع المباشر عبر رابط موقّت.</span>
                 </div>
               </div>
 
@@ -341,19 +447,114 @@ export const AdminSettingsView: React.FC<AdminSettingsViewProps> = ({ onNotice }
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <ShieldCheck className="w-4 h-4 text-crimson" />
-                    <span className="text-xs font-bold text-editorial-ivory">حماية الملفات الصوتية الأصلية</span>
+                    <span className="text-xs font-bold text-editorial-ivory">حماية الصوت المدفوع</span>
                   </div>
-                  <span className="bg-crimson-subtle border border-crimson/40 text-crimson px-2 py-0.5 rounded text-[10px] font-bold">
+                  <span className="bg-crimson-subtle border border-crimson/40 text-[#E85A65] px-2 py-0.5 rounded text-[10px] font-bold">
                     مشددة ومحمية
                   </span>
                 </div>
                 <p className="text-[11px] text-editorial-secondary leading-relaxed">
-                  تم قفل الروابط العامة لمنع تسريب الماستر الصوتي. يتم تسليم الصوتيات فقط عبر تدفق موثق (Authenticated Range Streaming) يتحقق من تسجيل الدخول والاستحقاق.
+                  لا يظهر الصوت المدفوع كرابط عام.
                 </p>
               </div>
             </div>
           )}
         </div>
+
+        {/* Social Links */}
+        <section className="lg:col-span-2 bg-surface border border-border-subtle rounded-xl p-5 space-y-5" aria-labelledby="social-links-title">
+          <div className="flex flex-col gap-3 border-b border-border-subtle pb-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="flex items-start gap-2 text-editorial-ivory">
+              <Link2 className="mt-0.5 h-4 w-4 text-crimson" aria-hidden="true" />
+              <div>
+                <h3 id="social-links-title" className="font-bold text-sm">السوشيال ميديا</h3>
+                <p className="mt-1 text-[11px] leading-relaxed text-editorial-muted">
+                  أضف روابط حسابات المنصة لتظهر تلقائياً كأيقونات قابلة للضغط في فوتر الموقع.
+                </p>
+              </div>
+            </div>
+            <span className="w-fit rounded-full border border-border-subtle bg-surface-elevated px-2.5 py-1 text-[10px] font-semibold text-editorial-secondary">
+              {SOCIAL_PLATFORMS.filter((platform) => Boolean(socialLinks[platform])).length} من {SOCIAL_PLATFORMS.length} روابط مضافة
+            </span>
+          </div>
+
+          {isLoadingSocialLinks ? (
+            <div className="flex justify-center py-10">
+              <Loader2 className="h-6 w-6 animate-spin text-crimson" aria-label="جارٍ تحميل الروابط" />
+            </div>
+          ) : socialLinksError ? (
+            <div className="space-y-3 py-8 text-center" role="alert">
+              <AlertCircle className="mx-auto h-8 w-8 text-amber-300" aria-hidden="true" />
+              <p className="text-sm font-semibold text-amber-100">تعذر تحميل روابط السوشيال ميديا</p>
+              <p className="text-xs text-editorial-muted">{socialLinksError}</p>
+              <button
+                type="button"
+                onClick={fetchSocialLinks}
+                className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-border-subtle bg-surface-elevated px-4 text-xs font-bold text-editorial-ivory transition-colors hover:bg-border-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson"
+              >
+                <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
+                إعادة المحاولة
+              </button>
+            </div>
+          ) : (
+            <form onSubmit={handleSaveSocialLinks} className="space-y-5">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                {SOCIAL_PLATFORMS.map((platform) => {
+                  const label = SOCIAL_PLATFORM_LABELS[platform];
+                  const inputId = `social-link-${platform}`;
+                  return (
+                    <div key={platform} className="space-y-2 rounded-lg border border-border-subtle/70 bg-surface-elevated/40 p-3">
+                      <label htmlFor={inputId} className="flex items-center justify-between gap-3 text-xs font-semibold text-editorial-ivory">
+                        <span>{label}</span>
+                        <span dir="ltr" className="text-[10px] font-normal uppercase tracking-[0.08em] text-editorial-muted">
+                          {platform === 'x' ? 'X' : platform}
+                        </span>
+                      </label>
+                      <input
+                        id={inputId}
+                        type="url"
+                        dir="ltr"
+                        inputMode="url"
+                        autoComplete="url"
+                        placeholder={`https://${platform === 'x' ? 'x.com' : `${platform}.com`}/...`}
+                        value={socialLinks[platform] || ''}
+                        onChange={(event) => setSocialLinks((previous) => ({ ...previous, [platform]: event.target.value }))}
+                        className="w-full min-h-11 rounded-lg border border-border-subtle bg-surface px-3 py-2.5 text-left text-xs text-editorial-ivory placeholder:text-editorial-muted/60 focus:border-crimson focus:outline-none focus-visible:ring-2 focus-visible:ring-crimson"
+                        aria-describedby={`${inputId}-hint`}
+                      />
+                      <p id={`${inputId}-hint`} className="text-[10px] leading-relaxed text-editorial-muted">
+                        اتركه فارغاً لإيقاف ظهور الرابط مؤقتاً.
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="flex flex-col gap-3 border-t border-border-subtle/70 pt-4 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-[11px] text-editorial-muted">
+                  نتحقق من أن كل رابط يبدأ بـ http:// أو https:// قبل حفظه.
+                </p>
+                <button
+                  type="submit"
+                  disabled={isSavingSocialLinks}
+                  className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-crimson px-5 text-xs font-bold text-white shadow-halo transition-colors hover:bg-crimson-bright disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson"
+                >
+                  {isSavingSocialLinks ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                      جارٍ الحفظ...
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+                      حفظ روابط السوشيال ميديا
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          )}
+        </section>
       </div>
     </div>
   );

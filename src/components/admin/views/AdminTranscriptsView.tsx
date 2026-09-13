@@ -7,10 +7,8 @@ import {
   Plus,
   Trash2,
   Save,
-  Check,
   ChevronDown,
-  AlertCircle,
-  Clock,
+  RefreshCw,
   FileText,
   Loader2,
 } from 'lucide-react';
@@ -64,6 +62,8 @@ export const AdminTranscriptsView: React.FC<Props> = ({
   const [segments, setSegments] = useState<Segment[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [retryToken, setRetryToken] = useState(0);
 
   useEffect(() => {
     if (initialSeriesId) setSelectedSeriesId(initialSeriesId);
@@ -87,31 +87,58 @@ export const AdminTranscriptsView: React.FC<Props> = ({
 
   // جلب النص المتزامن للحلقة المحددة
   useEffect(() => {
+    let cancelled = false;
+
     if (!currentEpisode?._id) {
       setSegments([]);
-      return;
+      setLoadError(null);
+      setIsLoading(false);
+      return () => {
+        cancelled = true;
+      };
     }
 
     setIsLoading(true);
-    fetch(`/api/v1/episodes/${currentEpisode._id}/stream`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
-        if (data?.transcript && Array.isArray(data.transcript)) {
+    setLoadError(null);
+
+    const loadTranscript = async () => {
+      try {
+        const response = await fetch(`/api/v1/admin/content?transcriptOf=${currentEpisode._id}`);
+        const data = await response.json().catch(() => null);
+        if (!response.ok) {
+          throw new Error(data?.error || 'تعذر جلب النص المتزامن لهذه الحلقة');
+        }
+
+        const rawSegments = data?.segments || data?.transcript;
+        if (!cancelled && rawSegments && Array.isArray(rawSegments)) {
           setSegments(
-            data.transcript.map((s: any, idx: number) => ({
+            rawSegments.map((s: any, idx: number) => ({
               id: s.id || `seg-${idx + 1}`,
               startMs: Number(s.startMs) || 0,
               endMs: Number(s.endMs) || 0,
               text: s.text || '',
             }))
           );
-        } else {
+        } else if (!cancelled) {
           setSegments([]);
         }
-      })
-      .catch(() => setSegments([]))
-      .finally(() => setIsLoading(false));
-  }, [currentEpisode?._id]);
+
+        if (!cancelled) setLoadError(null);
+      } catch (error) {
+        if (!cancelled) {
+          setSegments([]);
+          setLoadError(error instanceof Error ? error.message : 'تعذر جلب النص المتزامن لهذه الحلقة');
+        }
+      } finally {
+        if (!cancelled) setIsLoading(false);
+      }
+    };
+
+    void loadTranscript();
+    return () => {
+      cancelled = true;
+    };
+  }, [currentEpisode?._id, retryToken]);
 
   // معالجة رفع ملف الترجمة محلياً وتفكيكه
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -255,10 +282,10 @@ export const AdminTranscriptsView: React.FC<Props> = ({
         <div className="space-y-1">
           <h2 className="text-lg font-bold text-editorial-ivory flex items-center gap-2">
             <Subtitles size={20} className="text-crimson" />
-            <span>محرر النصوص المتزامنة (Sync Transcripts)</span>
+            <span>النصوص المتزامنة</span>
           </h2>
           <p className="text-xs text-editorial-muted">
-            رفع وضبط نصوص الحلقات المتزامنة كلمة بكلمة ومقطعاً بمقطع
+            استورد النص أو عدّل المقاطع والتوقيتات ثم احفظها
           </p>
         </div>
 
@@ -268,7 +295,8 @@ export const AdminTranscriptsView: React.FC<Props> = ({
             <select
               value={selectedSeriesId}
               onChange={(e) => setSelectedSeriesId(e.target.value)}
-              className="w-full min-h-10 ps-3 pe-8 rounded-xl bg-surface-elevated border border-border-subtle text-xs text-editorial-ivory appearance-none focus:outline-none focus:border-crimson"
+              aria-label="اختيار المسلسل"
+              className="w-full min-h-11 ps-3 pe-8 rounded-xl bg-surface-elevated border border-border-subtle text-xs text-editorial-ivory appearance-none focus:outline-none focus:border-crimson focus-visible:ring-2 focus-visible:ring-crimson"
             >
               {seriesList.map((s) => (
                 <option key={s._id} value={s._id}>
@@ -287,7 +315,8 @@ export const AdminTranscriptsView: React.FC<Props> = ({
             <select
               value={selectedSeasonId}
               onChange={(e) => setSelectedSeasonId(e.target.value)}
-              className="w-full min-h-10 ps-3 pe-8 rounded-xl bg-surface-elevated border border-border-subtle text-xs text-editorial-ivory appearance-none focus:outline-none focus:border-crimson"
+              aria-label="اختيار الموسم"
+              className="w-full min-h-11 ps-3 pe-8 rounded-xl bg-surface-elevated border border-border-subtle text-xs text-editorial-ivory appearance-none focus:outline-none focus:border-crimson focus-visible:ring-2 focus-visible:ring-crimson"
             >
               {seasons.map((sz) => (
                 <option key={sz._id} value={sz._id}>
@@ -306,7 +335,8 @@ export const AdminTranscriptsView: React.FC<Props> = ({
             <select
               value={selectedEpisodeId}
               onChange={(e) => setSelectedEpisodeId(e.target.value)}
-              className="w-full min-h-10 ps-3 pe-8 rounded-xl bg-surface-elevated border border-border-subtle text-xs text-editorial-ivory appearance-none focus:outline-none focus:border-crimson"
+              aria-label="اختيار الحلقة"
+              className="w-full min-h-11 ps-3 pe-8 rounded-xl bg-surface-elevated border border-border-subtle text-xs text-editorial-ivory appearance-none focus:outline-none focus:border-crimson focus-visible:ring-2 focus-visible:ring-crimson"
             >
               {episodes.map((ep) => (
                 <option key={ep._id} value={ep._id}>
@@ -325,9 +355,9 @@ export const AdminTranscriptsView: React.FC<Props> = ({
       {/* 2. شريط أدوات تحرير النص */}
       <div className="p-4 rounded-2xl bg-surface border border-border-subtle flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <label className="min-h-10 px-4 rounded-xl bg-surface-elevated hover:bg-border-subtle border border-border-subtle text-editorial-ivory text-xs font-bold flex items-center gap-2 cursor-pointer transition-colors">
+          <label className="min-h-11 px-4 rounded-xl bg-surface-elevated hover:bg-border-subtle border border-border-subtle text-editorial-ivory text-xs font-bold flex items-center gap-2 cursor-pointer transition-colors focus-within:ring-2 focus-within:ring-crimson">
             <Upload size={15} className="text-crimson" />
-            <span>استيراد ملف (SRT / VTT / JSON)</span>
+            <span>استيراد SRT / VTT / JSON</span>
             <input
               type="file"
               accept=".srt,.vtt,.json"
@@ -339,10 +369,10 @@ export const AdminTranscriptsView: React.FC<Props> = ({
           <button
             type="button"
             onClick={handleAddSegment}
-            className="min-h-10 px-3.5 rounded-xl bg-surface hover:bg-surface-elevated border border-border-subtle text-editorial-secondary hover:text-editorial-ivory text-xs font-semibold flex items-center gap-1.5 transition-colors"
+            className="min-h-11 px-3.5 rounded-xl bg-surface hover:bg-surface-elevated border border-border-subtle text-editorial-secondary hover:text-editorial-ivory text-xs font-semibold flex items-center gap-1.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson"
           >
             <Plus size={15} />
-            <span>إضافة مقطع يدوياً</span>
+                <span>إضافة مقطع</span>
           </button>
         </div>
 
@@ -355,7 +385,7 @@ export const AdminTranscriptsView: React.FC<Props> = ({
             type="button"
             onClick={handleSaveTranscript}
             disabled={isSaving}
-            className="min-h-10 px-6 rounded-xl bg-crimson hover:bg-crimson-bright text-white text-xs font-bold flex items-center gap-2 shadow-halo transition-transform active:scale-95 disabled:opacity-50"
+            className="min-h-11 px-6 rounded-xl bg-crimson hover:bg-crimson-bright text-white text-xs font-bold flex items-center gap-2 shadow-halo transition-transform active:scale-95 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson"
           >
             {isSaving ? (
               <>
@@ -365,7 +395,7 @@ export const AdminTranscriptsView: React.FC<Props> = ({
             ) : (
               <>
                 <Save size={15} />
-                <span>حفظ النص في قاعدة البيانات</span>
+                <span>حفظ النص</span>
               </>
             )}
           </button>
@@ -378,6 +408,22 @@ export const AdminTranscriptsView: React.FC<Props> = ({
           <div className="p-12 text-center text-editorial-muted flex items-center justify-center gap-2 text-xs">
             <Loader2 size={16} className="animate-spin" />
             <span>جارٍ جلب النص المتزامن...</span>
+          </div>
+        ) : loadError ? (
+          <div className="p-10 text-center space-y-3" role="alert">
+            <div className="w-10 h-10 rounded-full bg-red-950/40 border border-red-800/50 text-red-300 flex items-center justify-center mx-auto">
+              <FileText size={19} aria-hidden="true" />
+            </div>
+            <p className="text-sm text-red-200 font-semibold">تعذر تحميل النص</p>
+            <p className="text-xs text-editorial-muted max-w-md mx-auto">{loadError}</p>
+            <button
+              type="button"
+              onClick={() => setRetryToken((token) => token + 1)}
+              className="min-h-11 px-4 rounded-xl bg-surface-elevated hover:bg-border-subtle border border-border-subtle text-editorial-ivory text-xs font-bold inline-flex items-center justify-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson"
+            >
+              <RefreshCw size={14} aria-hidden="true" />
+              إعادة المحاولة
+            </button>
           </div>
         ) : segments.length > 0 ? (
           <div className="overflow-x-auto max-h-[500px] overflow-y-auto scrollbar-thin scrollbar-thumb-border-subtle">
@@ -403,7 +449,7 @@ export const AdminTranscriptsView: React.FC<Props> = ({
                         onChange={(e) =>
                           handleUpdateSegment(idx, 'startMs', parseInt(e.target.value) || 0)
                         }
-                        className="w-full bg-surface-elevated border border-border-subtle rounded-lg px-2 py-1 text-xs text-editorial-ivory font-mono focus:border-crimson focus:outline-none"
+                        className="w-full min-h-10 bg-surface-elevated border border-border-subtle rounded-lg px-2 py-1 text-xs text-editorial-ivory font-mono focus:border-crimson focus:outline-none focus-visible:ring-2 focus-visible:ring-crimson"
                       />
                     </td>
 
@@ -414,7 +460,7 @@ export const AdminTranscriptsView: React.FC<Props> = ({
                         onChange={(e) =>
                           handleUpdateSegment(idx, 'endMs', parseInt(e.target.value) || 0)
                         }
-                        className="w-full bg-surface-elevated border border-border-subtle rounded-lg px-2 py-1 text-xs text-editorial-ivory font-mono focus:border-crimson focus:outline-none"
+                        className="w-full min-h-10 bg-surface-elevated border border-border-subtle rounded-lg px-2 py-1 text-xs text-editorial-ivory font-mono focus:border-crimson focus:outline-none focus-visible:ring-2 focus-visible:ring-crimson"
                       />
                     </td>
 
@@ -423,7 +469,7 @@ export const AdminTranscriptsView: React.FC<Props> = ({
                         type="text"
                         value={seg.text}
                         onChange={(e) => handleUpdateSegment(idx, 'text', e.target.value)}
-                        className="w-full bg-surface-elevated border border-border-subtle rounded-lg px-3 py-1 text-xs text-editorial-ivory font-reading focus:border-crimson focus:outline-none"
+                        className="w-full min-h-10 bg-surface-elevated border border-border-subtle rounded-lg px-3 py-1 text-xs text-editorial-ivory font-reading focus:border-crimson focus:outline-none focus-visible:ring-2 focus-visible:ring-crimson"
                       />
                     </td>
 
@@ -431,8 +477,9 @@ export const AdminTranscriptsView: React.FC<Props> = ({
                       <button
                         type="button"
                         onClick={() => handleDeleteSegment(idx)}
-                        className="w-7 h-7 rounded-lg hover:bg-red-950/40 text-editorial-muted hover:text-red-300 flex items-center justify-center transition-colors mx-auto"
+                        className="min-w-11 min-h-11 rounded-lg hover:bg-red-950/40 text-editorial-muted hover:text-red-300 flex items-center justify-center transition-colors mx-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300"
                         title="حذف هذا المقطع"
+                        aria-label={`حذف المقطع ${idx + 1}`}
                       >
                         <Trash2 size={13} />
                       </button>

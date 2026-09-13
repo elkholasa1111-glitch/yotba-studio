@@ -4,11 +4,11 @@ import jwt from 'jsonwebtoken';
 import { cookies } from 'next/headers';
 import { User, AdminUser } from '@/lib/db/models';
 import { connectDB } from '@/lib/db/connect';
-import { isDemoMode } from '@/lib/config/runtime';
+import { isDemoMode, isProductionRuntime, normalizeEnv } from '@/lib/config/runtime';
 
-const JWT_SECRET = process.env.JWT_SECRET;
+const JWT_SECRET = normalizeEnv(process.env.JWT_SECRET);
 
-if (process.env.NODE_ENV === 'production' && !JWT_SECRET) {
+if (isProductionRuntime() && !JWT_SECRET) {
   throw new Error('JWT_SECRET must be configured in production');
 }
 
@@ -69,8 +69,8 @@ export function verifySessionToken(token: string): TokenPayload | null {
 /**
  * ضبط ملف تعريف الارتباط الآمن للجلسة (Secure HttpOnly Cookie)
  */
-export function setAuthCookie(token: string, isAdmin: boolean = false) {
-  const cookieStore = cookies();
+export async function setAuthCookie(token: string, isAdmin: boolean = false) {
+  const cookieStore = await cookies();
   const cookieName = isAdmin ? ADMIN_AUTH_COOKIE_NAME : AUTH_COOKIE_NAME;
   const isProduction = process.env.NODE_ENV === 'production';
 
@@ -86,8 +86,8 @@ export function setAuthCookie(token: string, isAdmin: boolean = false) {
 /**
  * إزالة كوكي الجلسة عند تسجيل الخروج (Session Revocation)
  */
-export function clearAuthCookie(isAdmin: boolean = false) {
-  const cookieStore = cookies();
+export async function clearAuthCookie(isAdmin: boolean = false) {
+  const cookieStore = await cookies();
   const cookieName = isAdmin ? ADMIN_AUTH_COOKIE_NAME : AUTH_COOKIE_NAME;
   cookieStore.delete(cookieName);
 }
@@ -96,7 +96,7 @@ export function clearAuthCookie(isAdmin: boolean = false) {
  * استخراج المستخدم الحالي من الكوكي الآمن في الخادم (Server-side Session Retrieval)
  */
 export async function getCurrentUser(): Promise<TokenPayload | null> {
-  const cookieStore = cookies();
+  const cookieStore = await cookies();
   const token = cookieStore.get(AUTH_COOKIE_NAME)?.value;
   if (!token) return null;
   const payload = verifySessionToken(token);
@@ -123,7 +123,7 @@ export async function getCurrentUser(): Promise<TokenPayload | null> {
  * استخراج المشرف الحالي من الكوكي الآمن مع التحقق من الصلاحيات
  */
 export async function getCurrentAdmin(): Promise<TokenPayload | null> {
-  const cookieStore = cookies();
+  const cookieStore = await cookies();
   const token = cookieStore.get(ADMIN_AUTH_COOKIE_NAME)?.value;
   if (!token) return null;
   

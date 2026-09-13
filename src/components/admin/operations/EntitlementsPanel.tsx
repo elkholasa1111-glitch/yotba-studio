@@ -312,7 +312,7 @@ export const EntitlementsPanel: React.FC<EntitlementsPanelProps> = ({
         {activeUser ? (
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border-subtle bg-surface-elevated p-3 text-xs">
             <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-crimson-subtle text-crimson font-bold">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-crimson-subtle text-[#E85A65] font-bold">
                 {activeUser.displayName.slice(0, 1).toUpperCase()}
               </div>
               <div>

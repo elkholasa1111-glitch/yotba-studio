@@ -220,7 +220,7 @@ export const SeriesEditor: React.FC<SeriesEditorProps> = ({ series, onClose, onS
             </div>
             <div>
               <label htmlFor="series-slug" className={labelClass}>
-                المعرّف (slug) — يُولَّد تلقائياً من العنوان إذا تُرك فارغاً
+                المعرّف للرابط (اختياري)
               </label>
               <input
                 id="series-slug"
@@ -232,7 +232,7 @@ export const SeriesEditor: React.FC<SeriesEditorProps> = ({ series, onClose, onS
                 aria-describedby="series-slug-hint"
               />
               <p id="series-slug-hint" className="text-[10px] text-editorial-muted mt-1">
-                يستخدم في رابط الصفحة العامة: /series/&lt;slug&gt;
+                يحدد رابط المسلسل العام.
               </p>
             </div>
             <div>
@@ -283,7 +283,7 @@ export const SeriesEditor: React.FC<SeriesEditorProps> = ({ series, onClose, onS
               value={form.posterUrl}
               onChange={(url) => setField('posterUrl', url)}
               error={errors.posterUrl}
-              helperText="تظهر في بطاقات المسلسلات والصفحة الرئيسية (نسبة أبعاد 2:3)"
+              helperText="تظهر في البطاقات (2:3)."
               required
             />
             <MediaUploadDropzone
@@ -292,7 +292,7 @@ export const SeriesEditor: React.FC<SeriesEditorProps> = ({ series, onClose, onS
               value={form.heroArtworkUrl}
               onChange={(url) => setField('heroArtworkUrl', url)}
               error={errors.heroArtworkUrl}
-              helperText="بانر أفقي عالي الدقة يظهر أعلى صفحة المسلسل (نسبة أبعاد 16:9)"
+              helperText="بانر الصفحة (16:9)."
               required
             />
             <MediaUploadDropzone
@@ -301,7 +301,7 @@ export const SeriesEditor: React.FC<SeriesEditorProps> = ({ series, onClose, onS
               value={form.shareVideoUrl}
               onChange={(url) => setField('shareVideoUrl', url)}
               error={errors.shareVideoUrl}
-              helperText="مقطع قصير ترويجي أو فيديو تيزر يُشارك على وسائل التواصل"
+              helperText="فيديو ترويجي قصير (اختياري)."
             />
           </div>
         </details>
@@ -311,7 +311,7 @@ export const SeriesEditor: React.FC<SeriesEditorProps> = ({ series, onClose, onS
           <div className="p-4 pt-1 space-y-3">
             <div>
               <label htmlFor="series-genres" className={labelClass}>
-                التصنيفات — مفصولة بفواصل (حتى 12)
+                التصنيفات (افصل بينها بفواصل)
               </label>
               <input
                 id="series-genres"
@@ -324,7 +324,7 @@ export const SeriesEditor: React.FC<SeriesEditorProps> = ({ series, onClose, onS
             </div>
             <div>
               <label htmlFor="series-warnings" className={labelClass}>
-                تحذيرات المحتوى — مفصولة بفواصل (حتى 10)
+                تحذيرات المحتوى (افصل بينها بفواصل)
               </label>
               <input
                 id="series-warnings"
@@ -381,7 +381,7 @@ export const SeriesEditor: React.FC<SeriesEditorProps> = ({ series, onClose, onS
           <div className="p-4 pt-1 space-y-3">
             <div>
               <label htmlFor="series-free-count" className={labelClass}>
-                عدد الحلقات المجانية تلقائياً (أول N حلقة من كل موسم)
+                الحلقات المجانية تلقائياً (أول N من كل موسم)
               </label>
               <input
                 id="series-free-count"
@@ -442,10 +442,10 @@ export const SeriesEditor: React.FC<SeriesEditorProps> = ({ series, onClose, onS
                 onChange={(e) => setAutoCreateSeason1(e.target.checked)}
                 className="w-4 h-4 accent-[#A8202A] rounded"
               />
-              <span>إنشاء «الموسم الأول» تلقائياً داخل العمل</span>
+              <span>إنشاء الموسم الأول تلقائياً</span>
             </label>
             <span className="text-[11px] text-editorial-muted">
-              يتيح لك البدء في رفع الحلقات والصوتيات فوراً
+              يمكنك إضافة الحلقات مباشرة.
             </span>
           </div>
         )}

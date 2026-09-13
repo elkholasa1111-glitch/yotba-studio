@@ -6,13 +6,17 @@ import crypto from 'crypto';
 import path from 'path';
 import { S3Client, GetObjectCommand, HeadBucketCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { isDemoMode, isProductionRuntime, hasR2Configuration } from '@/lib/config/runtime';
+import { isDemoMode, isProductionRuntime, hasR2Configuration, normalizeEnv } from '@/lib/config/runtime';
+import { getPublicPlatformOrigin, mediaUrlFromStorageKey, normalizeMediaUrl } from '@/lib/media/urls';
 
-const R2_ACCOUNT_ID = process.env.CLOUDFLARE_R2_ACCOUNT_ID?.trim();
-const R2_ACCESS_KEY_ID = process.env.CLOUDFLARE_R2_ACCESS_KEY_ID?.trim();
-const R2_SECRET_ACCESS_KEY = process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY?.trim();
-const R2_BUCKET_NAME = process.env.CLOUDFLARE_R2_BUCKET_NAME?.trim() || 'yotba-media';
-const R2_PUBLIC_DOMAIN = process.env.CLOUDFLARE_R2_PUBLIC_DOMAIN?.trim();
+const R2_ACCOUNT_ID = normalizeEnv(process.env.CLOUDFLARE_R2_ACCOUNT_ID);
+const R2_ACCESS_KEY_ID = normalizeEnv(process.env.CLOUDFLARE_R2_ACCESS_KEY_ID);
+const R2_SECRET_ACCESS_KEY = normalizeEnv(process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY);
+const R2_BUCKET_NAME = normalizeEnv(process.env.CLOUDFLARE_R2_BUCKET_NAME) || 'yotba-media';
+const R2_PUBLIC_DOMAIN = normalizeEnv(process.env.CLOUDFLARE_R2_PUBLIC_DOMAIN);
+// لا نستخدم نطاق CDN المخصص إلا بعد تفعيل صريح وتحقق DNS؛ المسار الداخلي
+// يظل الخيار الآمن والموثوق أثناء تشغيل المنصة على نطاق Vercel.
+const USE_R2_PUBLIC_DOMAIN = (normalizeEnv(process.env.CLOUDFLARE_R2_PUBLIC_DOMAIN_ENABLED) || '').toLowerCase() === 'true';
 
 let s3Client: S3Client | null = null;
 
@@ -104,6 +108,12 @@ export interface CategoryValidationConfig {
   arabicLabel: string;
 }
 
+// الصور والفيديو والصوت تُرفع مباشرة من المتصفح إلى Cloudflare R2، لذلك لا
+// نضع لها حدوداً اصطناعية من طرف المنصة. قيمة maxBytes ما زالت موجودة داخل
+// التذكرة للتوافق مع بنية التفويض القديمة، لكنها تساوي أكبر عدد صحيح آمن.
+// حد مزوّد التخزين نفسه (إن وُجد) لا يمكن تجاوزه إلا بإضافة multipart upload.
+const UNLIMITED_MEDIA_BYTES = Number.MAX_SAFE_INTEGER;
+
 // Allowed Image MIMEs (Raster graphics only - NO SVG for security)
 const ALLOWED_IMAGE_MIMES: Record<string, string> = {
   'image/jpeg': 'jpg',
@@ -186,7 +196,7 @@ export const CATEGORY_CONFIGS: Record<SupportedMediaCategory, CategoryValidation
   poster: {
     category: 'poster',
     folder: 'posters',
-    maxBytes: 20 * 1024 * 1024, // 20MB
+    maxBytes: UNLIMITED_MEDIA_BYTES,
     isProtected: false,
     allowedMimes: ALLOWED_IMAGE_MIMES,
     extensionToMime: IMAGE_EXTENSION_TO_MIME,
@@ -195,7 +205,7 @@ export const CATEGORY_CONFIGS: Record<SupportedMediaCategory, CategoryValidation
   hero: {
     category: 'hero',
     folder: 'hero',
-    maxBytes: 20 * 1024 * 1024, // 20MB
+    maxBytes: UNLIMITED_MEDIA_BYTES,
     isProtected: false,
     allowedMimes: ALLOWED_IMAGE_MIMES,
     extensionToMime: IMAGE_EXTENSION_TO_MIME,
@@ -204,7 +214,7 @@ export const CATEGORY_CONFIGS: Record<SupportedMediaCategory, CategoryValidation
   image: {
     category: 'image',
     folder: 'media',
-    maxBytes: 20 * 1024 * 1024, // 20MB
+    maxBytes: UNLIMITED_MEDIA_BYTES,
     isProtected: false,
     allowedMimes: ALLOWED_IMAGE_MIMES,
     extensionToMime: IMAGE_EXTENSION_TO_MIME,
@@ -213,7 +223,7 @@ export const CATEGORY_CONFIGS: Record<SupportedMediaCategory, CategoryValidation
   audio: {
     category: 'audio',
     folder: 'audio',
-    maxBytes: 500 * 1024 * 1024, // 500MB for master audio
+    maxBytes: UNLIMITED_MEDIA_BYTES,
     isProtected: true,
     allowedMimes: ALLOWED_AUDIO_MIMES,
     extensionToMime: AUDIO_EXTENSION_TO_MIME,
@@ -222,7 +232,7 @@ export const CATEGORY_CONFIGS: Record<SupportedMediaCategory, CategoryValidation
   video: {
     category: 'video',
     folder: 'media',
-    maxBytes: 300 * 1024 * 1024, // 300MB
+    maxBytes: UNLIMITED_MEDIA_BYTES,
     isProtected: false,
     allowedMimes: ALLOWED_VIDEO_MIMES,
     extensionToMime: VIDEO_EXTENSION_TO_MIME,
@@ -320,7 +330,8 @@ export function validateUploadAuthorizeInput(rawBody: unknown): ValidationResult
     };
   }
 
-  // 4. فحص حجم الملف (fileSize) - إلزامي، رقم صحيح موجب ومحدود
+  // 4. فحص حجم الملف (fileSize) — إلزامي كرقم موجب فقط.
+  // لا نضع حداً للصور أو الصوت أو الفيديو؛ هذه الملفات تذهب مباشرة إلى R2.
   if (
     typeof fileSize !== 'number' ||
     !Number.isFinite(fileSize) ||
@@ -334,7 +345,8 @@ export function validateUploadAuthorizeInput(rawBody: unknown): ValidationResult
     };
   }
 
-  if (fileSize > config.maxBytes) {
+  // ملفات الترجمة تُقرأ داخل الخادم، لذلك تبقى لها حماية منفصلة من الحجم.
+  if (config.category === 'transcript' && fileSize > config.maxBytes) {
     const maxMb = Math.floor(config.maxBytes / (1024 * 1024));
     return {
       ok: false,
@@ -415,6 +427,43 @@ export interface ValidatedFinalizeInput {
 }
 
 const STORAGE_KEY_REGEX = /^(posters|hero|media|audio)\/(\d+_[a-f0-9]{16}\.[a-z0-9]+)$/;
+const LEGACY_EPISODE_AUDIO_KEY_REGEX = /^episodes\/[a-f0-9]{24}\/audio\.[a-z0-9]+$/i;
+
+/** يتحقق من أن المفتاح صادر عن مولّد الرفع وليس مساراً اعتباطياً. */
+export function isValidGeneratedStorageKey(rawKey: unknown, category?: SupportedMediaCategory): rawKey is string {
+  if (typeof rawKey !== 'string') return false;
+  const cleanKey = rawKey.trim().replace(/^\/+/, '');
+  const match = cleanKey.match(STORAGE_KEY_REGEX);
+  if (match) {
+    if (!category) return true;
+    const config = CATEGORY_CONFIGS[category];
+    const extension = cleanKey.split('.').pop()?.toLowerCase() || '';
+    return match[1] === config.folder && Boolean(config.extensionToMime[extension]);
+  }
+
+  // ملفات الصوت التي رُفعت عبر المسار القديم كانت تُحفظ تحت
+  // episodes/<ObjectId>/audio.<ext>. نسمح بحذفها فقط بهذا الشكل الصارم.
+  return LEGACY_EPISODE_AUDIO_KEY_REGEX.test(cleanKey) && (!category || category === 'audio');
+}
+
+/**
+ * استخراج مفتاح R2 من قيمة محفوظة كمسار داخلي أو رابط CDN قديم.
+ * لا نعيد أي قيمة إلا إذا طابقت بنية مفتاح مولّدة آمنة، حتى لا تتحول
+ * عملية تنظيف المحتوى إلى حذف رابط خارجي أو مسار اعتباطي.
+ */
+export function extractStorageKey(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.startsWith('blob:')) return null;
+
+  const match = trimmed.match(
+    /(?:^|\/)((?:posters|hero|media|audio)\/\d+_[a-f0-9]{16}\.[a-z0-9]+|episodes\/[a-f0-9]{24}\/audio\.[a-z0-9]+)(?:[?#]|$)/i
+  );
+  if (!match) return null;
+
+  const candidate = match[1];
+  return isValidGeneratedStorageKey(candidate) ? candidate : null;
+}
 
 export function validateUploadFinalizeInput(rawBody: unknown): ValidationResult<ValidatedFinalizeInput> {
   if (!rawBody || typeof rawBody !== 'object' || Array.isArray(rawBody)) {
@@ -496,7 +545,7 @@ export interface UploadAuthorizationTicket {
 }
 
 export function getTicketSecret(): string {
-  const secret = process.env.JWT_SECRET || process.env.ADMIN_SESSION_SECRET;
+  const secret = normalizeEnv(process.env.JWT_SECRET) || normalizeEnv(process.env.ADMIN_SESSION_SECRET);
   if (isProductionRuntime() || process.env.NODE_ENV === 'production') {
     if (!secret) {
       throw new Error('JWT_SECRET or ADMIN_SESSION_SECRET must be configured in production for upload authorization tickets');
@@ -703,7 +752,9 @@ export function validateVerifiedMetadata(
     };
   }
 
-  if (metadata.sizeBytes > config.maxBytes) {
+  // لا يوجد حد تطبيقي للصور/الصوت/الفيديو عند الرفع المباشر إلى R2.
+  // نحتفظ بحد الترجمة فقط لأنها تُحلّل داخل خادم المنصة.
+  if (config.category === 'transcript' && metadata.sizeBytes > config.maxBytes) {
     const maxMb = Math.floor(config.maxBytes / (1024 * 1024));
     return {
       ok: false,
@@ -767,6 +818,44 @@ export function validateVerifiedMetadata(
       sizeBytes: metadata.sizeBytes,
       contentType: norm,
     },
+  };
+}
+
+export interface LegacyMultipartUploadPolicyResult {
+  allowed: boolean;
+  requiresDirectUpload: boolean;
+  reason: 'PRODUCTION_DIRECT_UPLOAD_REQUIRED' | 'LOCAL_DEVELOPMENT_FALLBACK_ALLOWED';
+  errorMessage?: string;
+}
+
+/**
+ * سياسة رفع الوسائط عبر مسار multipart القديم على الخادم:
+ * - في بيئة الإنتاج: يُمنع الرفع عبر الخادم لمنع استهلاك الذاكرة وتجاوز حدود Serverless،
+ *   ويشترط استخدام الرفع المباشر إلى Cloudflare R2 (Direct Upload).
+ * - في بيئة التطوير المحلي: يُسمح بالمسار القديم كبديل احتياطي محلي (Legacy Fallback).
+ */
+export function getLegacyMultipartUploadPolicy(
+  envNodeEnv?: string
+): LegacyMultipartUploadPolicyResult {
+  const isProd =
+    typeof envNodeEnv === 'string'
+      ? envNodeEnv.trim().toLowerCase() === 'production'
+      : isProductionRuntime();
+
+  if (isProd) {
+    return {
+      allowed: false,
+      requiresDirectUpload: true,
+      reason: 'PRODUCTION_DIRECT_UPLOAD_REQUIRED',
+      errorMessage:
+        'رفع الوسائط عبر multipart غير مدعوم في بيئة الإنتاج. يجب استخدام مسار الرفع المباشر إلى Cloudflare R2.',
+    };
+  }
+
+  return {
+    allowed: true,
+    requiresDirectUpload: false,
+    reason: 'LOCAL_DEVELOPMENT_FALLBACK_ALLOWED',
   };
 }
 
@@ -837,9 +926,11 @@ export class StorageService {
       return '';
     }
 
-    if (storageKey.startsWith('http')) {
-      return storageKey;
+    const normalizedStoredUrl = normalizeMediaUrl(storageKey);
+    if (normalizedStoredUrl !== storageKey || normalizedStoredUrl.startsWith('/api/v1/media/')) {
+      return mediaUrlFromStorageKey(normalizedStoredUrl, getPublicPlatformOrigin());
     }
+    if (/^https?:\/\//i.test(storageKey)) return storageKey;
     if (
       storageKey.startsWith('/api/v1/media') ||
       storageKey.startsWith('/uploads') ||
@@ -849,10 +940,10 @@ export class StorageService {
     }
 
     if (hasR2Configuration()) {
-      if (R2_PUBLIC_DOMAIN) {
+      if (R2_PUBLIC_DOMAIN && USE_R2_PUBLIC_DOMAIN) {
         return `${R2_PUBLIC_DOMAIN.replace(/\/$/, '')}/${cleanKey}`;
       }
-      return `/api/v1/media/${cleanKey}`;
+      return mediaUrlFromStorageKey(cleanKey, getPublicPlatformOrigin());
     }
 
     // عندما لا يكون R2 مضبوطاً في بيئة التطوير، الصور والوسائط العامة تحال مباشرة إلى /uploads/...
@@ -923,6 +1014,39 @@ export class StorageService {
     } catch {
       return false;
     }
+  }
+
+  /**
+   * حذف مجموعة مفاتيح بشكل idempotent مع تقرير بالنتيجة لكل ملف.
+   * DeleteObject في R2 لا يحتاج معرفة مسبقة بوجود الملف، لذلك إعادة المحاولة
+   * آمنة، كما أن الملفات الفاشلة تُعاد للمشرف في سجل التدقيق.
+   */
+  static async deleteMediaMany(keys: Iterable<string>): Promise<{
+    requested: number;
+    deleted: number;
+    failed: number;
+    deletedKeys: string[];
+    failedKeys: string[];
+  }> {
+    const uniqueKeys = Array.from(
+      new Set(
+        Array.from(keys).filter((key): key is string => isValidGeneratedStorageKey(key))
+      )
+    );
+
+    const results = await Promise.all(
+      uniqueKeys.map(async (key) => ({ key, success: await StorageService.deleteMedia(key) }))
+    );
+    const deletedKeys = results.filter((result) => result.success).map((result) => result.key);
+    const failedKeys = results.filter((result) => !result.success).map((result) => result.key);
+
+    return {
+      requested: uniqueKeys.length,
+      deleted: deletedKeys.length,
+      failed: failedKeys.length,
+      deletedKeys,
+      failedKeys,
+    };
   }
 
   /**
@@ -1129,4 +1253,3 @@ export function parseSubtitleText(
 
   return segments;
 }
-

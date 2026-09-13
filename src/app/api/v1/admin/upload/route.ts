@@ -9,14 +9,18 @@ import { NextResponse } from 'next/server';
 import { getCurrentAdmin } from '@/lib/auth';
 import {
   StorageService,
+  getLegacyMultipartUploadPolicy,
   validateUploadAuthorizeInput,
   generateStorageKey,
   sanitizeFileName,
   isSupportedCategory,
   CATEGORY_CONFIGS,
   parseSubtitleText,
+  isValidGeneratedStorageKey,
+  extractStorageKey,
+  verifyUploadTicket,
 } from '@/lib/storage';
-import { writeAudit } from '@/lib/admin/content-api';
+import { isStorageKeyReferencedInDb, validateUploadDeleteTicket, writeAudit } from '@/lib/admin/content-api';
 
 const CONTENT_ROLES = ['SUPER_ADMIN', 'ADMIN', 'CONTENT_EDITOR'];
 
@@ -119,7 +123,16 @@ export async function POST(req: Request) {
       });
     }
 
-    // 2. استنتاج MIME إذا كان فارغاً أو octet-stream من المتصفح
+    // 2. في بيئة الإنتاج: يُمنع رفع وسائط الصور والصوت والفيديو عبر خادم المنصة (يجب استخدام الرفع المباشر إلى Cloudflare R2)
+    const uploadPolicy = getLegacyMultipartUploadPolicy();
+    if (!uploadPolicy.allowed) {
+      return NextResponse.json(
+        { error: 'رفع وسائط الصور والصوت والفيديو عبر الخادم غير متاح في بيئة الإنتاج. يجب استخدام مسار الرفع المباشر إلى Cloudflare R2.' },
+        { status: 400 }
+      );
+    }
+
+    // 3. استنتاج MIME إذا كان فارغاً أو octet-stream من المتصفح
     const cleanExt = sanitizeFileName(file.name).split('.').pop()?.toLowerCase() || '';
     const catConfig = isSupportedCategory(category) ? CATEGORY_CONFIGS[category] : null;
     const fallbackMime = catConfig?.extensionToMime[cleanExt] || file.type || 'application/octet-stream';
@@ -190,20 +203,37 @@ export async function DELETE(req: Request) {
       return NextResponse.json({ error: 'صيغة البيانات المرسلة غير صالحة' }, { status: 400 });
     }
 
-    const { key, url } = body || {};
-    let targetKey = typeof key === 'string' ? key : '';
-    if (!targetKey && url && typeof url === 'string') {
-      const match = url.match(/(posters|hero|audio|media|uploads)\/[^?#]+/);
-      if (match) targetKey = match[0];
-    }
-
-    if (!targetKey) {
+    const { key, url, storageKey, ticket } = body || {};
+    const candidate =
+      (typeof key === 'string' && key.trim()) ||
+      (typeof storageKey === 'string' && storageKey.trim()) ||
+      (typeof url === 'string' && url.trim()) ||
+      '';
+    if (!candidate) {
       return NextResponse.json({ error: 'معرف الملف غير محدد' }, { status: 400 });
     }
 
-    const cleanKey = targetKey.replace(/\.\./g, '').replace(/^\/+/, '');
-    if (!cleanKey.match(/^(posters|hero|audio|media|uploads)\/[^?#]+$/)) {
+    const cleanKey =
+      extractStorageKey(candidate) ||
+      (isValidGeneratedStorageKey(candidate.replace(/^\/+/, '')) ? candidate.trim().replace(/^\/+/, '') : null);
+
+    if (!cleanKey) {
       return NextResponse.json({ error: 'معرف الملف غير صالح للحذف' }, { status: 400 });
+    }
+
+    // التحقق الصارم من وجود رمز تفويض الرفع (ticket) ومطابقته للمشرف والملف المطلوب حذفه
+    const ticketValidation = validateUploadDeleteTicket(ticket, admin.userId, cleanKey);
+    if (!ticketValidation.ok) {
+      return NextResponse.json({ error: ticketValidation.error }, { status: ticketValidation.status });
+    }
+
+    // الحماية من حذف أي ملف مرتبط بمحتوى قائم في قاعدة البيانات حتى لو كانت التذكرة صالحة
+    const isReferenced = await isStorageKeyReferencedInDb(cleanKey);
+    if (isReferenced) {
+      return NextResponse.json(
+        { error: 'لا يمكن حذف هذا الملف لأنه مستخدم ومرتبط بمحتوى مسجل في المنصة' },
+        { status: 409 }
+      );
     }
 
     const success = await StorageService.deleteMedia(cleanKey);
@@ -224,4 +254,3 @@ export async function DELETE(req: Request) {
     );
   }
 }
-

@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import Image from 'next/image';
 import Link from 'next/link';
 import {
   ArrowRight,
@@ -17,7 +16,7 @@ import {
   Lock,
   Unlock,
   Subtitles,
-  Sparkles,
+  Star,
   ExternalLink,
   Clock,
   CheckCircle2,
@@ -43,7 +42,9 @@ import { SeriesEditor } from './SeriesEditor';
 import { SeasonEditor } from './SeasonEditor';
 import { EpisodeEditor } from './EpisodeEditor';
 import { TranscriptEditor } from './TranscriptEditor';
+import { resolvePublicPlatformUrl } from '@/lib/config/public-platform';
 import { ConfirmDialog } from './ConfirmDialog';
+import { AdaptiveImage } from '@/components/media/AdaptiveImage';
 
 interface Props {
   series: AdminSeriesDTO;
@@ -141,14 +142,14 @@ export const SeriesStudioView: React.FC<Props> = ({
 
     setPreviewLoadingId(ep._id);
     try {
-      let streamUrl = ep.audioPublicUrl;
-      if (!streamUrl || streamUrl.startsWith('blob:')) {
-        const res = await fetch(`/api/v1/episodes/${ep._id}/stream`);
-        if (res.ok) {
-          const data = await res.json();
-          streamUrl = data.streamUrl;
-        }
+      const res = await fetch(`/api/v1/admin/content/audio?episodeId=${ep._id}`);
+      if (!res.ok) {
+        const errData = await res.json().catch(() => null);
+        showNotice('error', errData?.error || 'لا يوجد ملف صوتي متاح لمعاينة هذه الحلقة');
+        return;
       }
+      const data = await res.json();
+      const streamUrl = data?.streamUrl;
 
       if (!streamUrl) {
         showNotice('error', 'لا يوجد ملف صوتي متاح لمعاينة هذه الحلقة');
@@ -328,69 +329,73 @@ export const SeriesStudioView: React.FC<Props> = ({
   return (
     <div className="space-y-6 animate-fade-in text-right">
       {/* 1. مسار التنقل والرجوع السريع */}
-      <div className="flex items-center justify-between gap-3 p-3.5 rounded-2xl bg-surface border border-border-subtle">
-        <div className="flex items-center gap-2 text-xs">
+      <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 rounded-2xl bg-surface border border-border-subtle">
+        <div className="min-w-0 flex flex-wrap items-center gap-2 text-xs">
           <button
             type="button"
             onClick={onBack}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-surface-elevated hover:bg-border-subtle text-editorial-secondary hover:text-editorial-ivory transition-colors font-semibold"
+            className="min-h-11 flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-surface-elevated hover:bg-border-subtle text-editorial-secondary hover:text-editorial-ivory transition-colors font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson"
           >
-            <ArrowRight size={15} />
-            <span>العودة لجميع المسلسلات</span>
+            <ArrowRight size={15} aria-hidden="true" />
+            <span>المسلسلات</span>
           </button>
-          <span className="text-editorial-muted">/</span>
-          <span className="font-bold text-editorial-ivory">{series.title}</span>
-          <span className="px-2 py-0.5 rounded-md bg-crimson/15 text-crimson text-[10px] font-bold">
+          <span className="text-editorial-muted" aria-hidden="true">/</span>
+          <span className="max-w-[42vw] truncate font-bold text-editorial-ivory" title={series.title}>{series.title}</span>
+          <span className="hidden sm:inline px-2 py-0.5 rounded-md bg-crimson/15 text-crimson text-[10px] font-bold">
             استوديو العمل
           </span>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 ms-auto">
           <Link
-            href={`https://yotba.vercel.app/series/${encodeURIComponent(series.slug)}`}
+            href={resolvePublicPlatformUrl(`/series/${encodeURIComponent(series.slug)}`)}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-surface-elevated hover:bg-border-subtle border border-border-subtle text-editorial-secondary hover:text-editorial-ivory text-xs transition-colors"
+            className="min-h-11 min-w-11 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl bg-surface-elevated hover:bg-border-subtle border border-border-subtle text-editorial-secondary hover:text-editorial-ivory text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson"
+            aria-label={`معاينة مسلسل ${series.title} على المنصة العامة`}
           >
-            <ExternalLink size={14} />
-            <span className="hidden sm:inline">معاينة العمل في المنصة</span>
+            <ExternalLink size={14} aria-hidden="true" />
+            <span className="hidden sm:inline">معاينة</span>
           </Link>
 
           <button
             type="button"
             onClick={() => setIsEditingSeries(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-crimson hover:bg-crimson-bright text-white text-xs font-bold transition-all shadow-halo"
+            className="min-h-11 min-w-11 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl bg-crimson hover:bg-crimson-bright text-white text-xs font-bold transition-all shadow-halo focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson"
+            aria-label={`تعديل مسلسل ${series.title}`}
           >
-            <Pencil size={13} />
-            <span>تعديل بيانات العمل</span>
+            <Pencil size={13} aria-hidden="true" />
+            <span>تعديل</span>
           </button>
 
           <button
             type="button"
             onClick={() => setDeletingSeries(true)}
-            className="p-2 rounded-xl bg-surface-elevated hover:bg-red-950/40 border border-border-subtle hover:border-red-800 text-editorial-muted hover:text-red-300 transition-colors"
+            className="min-w-11 min-h-11 flex items-center justify-center rounded-xl bg-surface-elevated hover:bg-red-950/40 border border-border-subtle hover:border-red-800 text-editorial-muted hover:text-red-300 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300"
             title="حذف المسلسل"
+            aria-label={`حذف مسلسل ${series.title}`}
           >
-            <Trash2 size={15} />
+            <Trash2 size={15} aria-hidden="true" />
           </button>
         </div>
       </div>
 
       {/* 2. بانر استوديو العمل الرئيسي (Hero Workstation Stage) */}
-      <div className="relative rounded-3xl bg-surface border border-border-subtle overflow-hidden p-6 sm:p-8 flex flex-col md:flex-row gap-6 items-start">
+      <div className="relative rounded-3xl bg-surface border border-border-subtle overflow-hidden p-5 sm:p-8 flex flex-col md:flex-row gap-6 items-start">
         {/* بوستر العمل الفخم */}
         <div className="relative w-28 h-40 sm:w-36 sm:h-52 rounded-2xl overflow-hidden shrink-0 border border-white/10 shadow-2xl bg-black">
-          <Image
+          <AdaptiveImage
             src={series.posterUrl}
+            unoptimized
             alt={series.title}
-            fill
+            fit="cover"
             sizes="144px"
             className="object-cover"
             priority
           />
           {series.featured && (
             <div className="absolute top-2 start-2 p-1.5 rounded-lg bg-crimson text-white shadow-halo">
-              <Sparkles size={13} />
+              <Star size={13} aria-hidden="true" />
             </div>
           )}
         </div>
@@ -404,9 +409,23 @@ export const SeriesStudioView: React.FC<Props> = ({
             <span className="px-2.5 py-1 rounded-lg bg-surface-elevated text-xs text-editorial-muted border border-border-subtle">
               سنة {series.productionYear}
             </span>
-            <span className="px-2.5 py-1 rounded-lg bg-emerald-950/40 text-emerald-400 border border-emerald-800 text-xs font-semibold">
-              أول {series.freeEpisodesCount} حلقات مجانية
-            </span>
+            {series.freeEpisodesCount === 0 ? (
+              <span className="px-2.5 py-1 rounded-lg bg-surface-elevated text-editorial-muted border border-border-subtle text-xs">
+                جميع الحلقات مقفلة
+              </span>
+            ) : series.freeEpisodesCount === 1 ? (
+              <span className="px-2.5 py-1 rounded-lg bg-emerald-950/40 text-emerald-400 border border-emerald-800 text-xs font-semibold">
+                الحلقة الأولى مجانية
+              </span>
+            ) : series.freeEpisodesCount === 2 ? (
+              <span className="px-2.5 py-1 rounded-lg bg-emerald-950/40 text-emerald-400 border border-emerald-800 text-xs font-semibold">
+                أول حلقتين مجاناً
+              </span>
+            ) : (
+              <span className="px-2.5 py-1 rounded-lg bg-emerald-950/40 text-emerald-400 border border-emerald-800 text-xs font-semibold">
+                أول {series.freeEpisodesCount} حلقات مجانية
+              </span>
+            )}
             {series.isCompleted ? (
               <span className="px-2.5 py-1 rounded-lg bg-surface-elevated text-editorial-muted text-xs border border-border-subtle">
                 مكتمل
@@ -427,7 +446,7 @@ export const SeriesStudioView: React.FC<Props> = ({
           </p>
 
           <div className="flex flex-wrap gap-1.5 pt-1">
-            {(series.genres || []).map((g) => (
+            {(series.genres || []).slice(0, 4).map((g) => (
               <span
                 key={g}
                 className="px-2.5 py-0.5 rounded-md bg-surface-elevated text-[11px] text-editorial-muted border border-white/5"
@@ -435,6 +454,11 @@ export const SeriesStudioView: React.FC<Props> = ({
                 {g}
               </span>
             ))}
+            {(series.genres || []).length > 4 && (
+              <span className="px-2.5 py-0.5 rounded-md bg-surface-elevated text-[11px] text-editorial-muted border border-white/5">
+                +{(series.genres || []).length - 4}
+              </span>
+            )}
           </div>
 
           {/* شريط الأرقام والمؤشرات */}
@@ -448,10 +472,6 @@ export const SeriesStudioView: React.FC<Props> = ({
               <Radio size={15} className="text-crimson" />
               <span className="font-bold text-editorial-ivory">{totalSeriesEpisodes}</span>
               <span>حلقة مسجلة</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <Clock size={15} className="text-editorial-muted" />
-              <span>الرابط: <a href={`https://yotba.vercel.app/series/${encodeURIComponent(series.slug)}`} target="_blank" rel="noopener noreferrer" className="text-editorial-ivory hover:text-crimson underline underline-offset-4">/series/{series.slug}</a></span>
             </div>
           </div>
         </div>
@@ -475,7 +495,8 @@ export const SeriesStudioView: React.FC<Props> = ({
                     setActiveSeasonId(season._id);
                     setShowQuickAddEpisode(false);
                   }}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
+                  aria-pressed={isSelected}
+                  className={`min-h-11 flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson ${
                     isSelected
                       ? 'bg-crimson text-white shadow-halo scale-105'
                       : 'bg-surface hover:bg-surface-elevated text-editorial-secondary hover:text-editorial-ivory border border-border-subtle'
@@ -498,7 +519,7 @@ export const SeriesStudioView: React.FC<Props> = ({
             <button
               type="button"
               onClick={() => setEditingSeason('NEW')}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-surface-elevated hover:bg-border-subtle border border-dashed border-border-subtle hover:border-crimson text-editorial-secondary hover:text-crimson text-xs font-bold transition-colors whitespace-nowrap"
+              className="min-h-11 flex items-center gap-1.5 px-3 py-2 rounded-xl bg-surface-elevated hover:bg-border-subtle border border-dashed border-border-subtle hover:border-crimson text-editorial-secondary hover:text-crimson text-xs font-bold transition-colors whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson"
             >
               <Plus size={14} />
               <span>موسم جديد</span>
@@ -510,10 +531,12 @@ export const SeriesStudioView: React.FC<Props> = ({
             <button
               type="button"
               onClick={() => setShowQuickAddEpisode(!showQuickAddEpisode)}
-              className="px-4 py-2 rounded-xl bg-crimson hover:bg-crimson-bright text-white text-xs font-bold flex items-center gap-2 shadow-halo transition-transform active:scale-95 shrink-0"
+              className="min-h-11 px-4 py-2 rounded-xl bg-crimson hover:bg-crimson-bright text-white text-xs font-bold flex items-center gap-2 shadow-halo transition-transform active:scale-95 shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson"
+              aria-expanded={showQuickAddEpisode}
+              aria-controls="quick-episode-form"
             >
               {showQuickAddEpisode ? <ChevronUp size={15} /> : <Plus size={15} />}
-              <span>{showQuickAddEpisode ? 'إغلاق نموذج الإضافة' : '+ إضافة حلقة للموسم'}</span>
+              <span>{showQuickAddEpisode ? 'إغلاق الإضافة' : 'إضافة حلقة'}</span>
             </button>
           )}
         </div>
@@ -525,13 +548,13 @@ export const SeriesStudioView: React.FC<Props> = ({
             <div className="space-y-1">
               <h3 className="text-base font-bold text-editorial-ivory">لا توجد مواسم في هذا المسلسل بعد</h3>
               <p className="text-xs text-editorial-muted">
-                أنشئ الموسم الأول للعمل لتبدأ فوراً في رفع الحلقات والصوتيات
+                أنشئ الموسم الأول ثم أضف الحلقات والصوت
               </p>
             </div>
             <button
               type="button"
               onClick={() => setEditingSeason('NEW')}
-              className="px-5 py-2.5 rounded-xl bg-crimson hover:bg-crimson-bright text-white text-xs font-bold inline-flex items-center gap-2 shadow-halo"
+              className="min-h-11 px-5 py-2.5 rounded-xl bg-crimson hover:bg-crimson-bright text-white text-xs font-bold inline-flex items-center gap-2 shadow-halo focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson"
             >
               <Plus size={16} />
               <span>إنشاء الموسم الأول الآن</span>
@@ -545,7 +568,7 @@ export const SeriesStudioView: React.FC<Props> = ({
             {/* شريط معلومات وإجراءات الموسم النشط */}
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4 rounded-2xl bg-surface-elevated/40 border border-border-subtle">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 font-bold">
+                <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 font-bold shrink-0">
                   {activeSeason.seasonNumber}
                 </div>
                 <div>
@@ -558,34 +581,36 @@ export const SeriesStudioView: React.FC<Props> = ({
                     </span>
                   </div>
                   <p className="text-xs text-editorial-muted">
-                    سعر شراء الموسم: <span className="text-editorial-ivory font-bold">${activeSeason.price} {activeSeason.currency}</span> • {episodes.length} حلقات
+                    سعر شراء الموسم: <span className="text-editorial-ivory font-bold font-mono" dir="ltr">${activeSeason.price} {activeSeason.currency}</span> • {episodes.length} حلقات
                   </p>
                 </div>
               </div>
 
-              <div className="flex items-center gap-2 self-end sm:self-auto">
+              <div className="w-full sm:w-auto flex flex-wrap items-center justify-end gap-2 self-end sm:self-auto">
                 <button
                   type="button"
                   onClick={() => setEditingSeason(activeSeason)}
-                  className="px-2.5 py-1.5 rounded-lg bg-surface hover:bg-surface-elevated border border-border-subtle text-editorial-secondary hover:text-editorial-ivory text-xs flex items-center gap-1.5 transition-colors"
+                  className="min-h-11 px-2.5 py-1.5 rounded-lg bg-surface hover:bg-surface-elevated border border-border-subtle text-editorial-secondary hover:text-editorial-ivory text-xs flex items-center gap-1.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson"
+                  aria-label={`تعديل الموسم ${activeSeason.title}`}
                 >
-                  <Pencil size={12} />
+                  <Pencil size={12} aria-hidden="true" />
                   <span>تعديل الموسم</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => setDeletingSeason(activeSeason)}
-                  className="p-1.5 rounded-lg bg-surface hover:bg-red-950/40 border border-border-subtle hover:border-red-800 text-editorial-muted hover:text-red-300 transition-colors"
+                  className="min-w-11 min-h-11 flex items-center justify-center rounded-lg bg-surface hover:bg-red-950/40 border border-border-subtle hover:border-red-800 text-editorial-muted hover:text-red-300 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300"
                   title="حذف الموسم"
+                  aria-label={`حذف الموسم ${activeSeason.title}`}
                 >
-                  <Trash2 size={13} />
+                  <Trash2 size={13} aria-hidden="true" />
                 </button>
               </div>
             </div>
 
             {/* 4. لوحة الإضافة السريعة للحلقة (Quick Episode Creator) */}
             {showQuickAddEpisode && (
-              <div className="p-5 rounded-2xl bg-surface border-2 border-crimson/40 space-y-4 shadow-xl animate-fade-in">
+              <div id="quick-episode-form" className="p-5 rounded-2xl bg-surface border-2 border-crimson/40 space-y-4 shadow-xl animate-fade-in">
                 <div className="flex items-center justify-between border-b border-border-subtle pb-3">
                   <div className="flex items-center gap-2">
                     <Radio size={18} className="text-crimson" />
@@ -596,9 +621,10 @@ export const SeriesStudioView: React.FC<Props> = ({
                   <button
                     type="button"
                     onClick={() => setShowQuickAddEpisode(false)}
-                    className="p-1 text-editorial-muted hover:text-editorial-ivory"
+                    className="min-w-11 min-h-11 flex items-center justify-center rounded-lg text-editorial-muted hover:text-editorial-ivory focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson"
+                    aria-label="إغلاق إضافة الحلقة"
                   >
-                    <X size={16} />
+                    <X size={16} aria-hidden="true" />
                   </button>
                 </div>
 
@@ -606,7 +632,7 @@ export const SeriesStudioView: React.FC<Props> = ({
                   {/* سحب وإسقاط ملف الصوت مباشرة */}
                   <div>
                     <MediaUploadDropzone
-                      label="الملف الصوتي للماستر (سحب وإسقاط فوري)"
+                      label="الملف الصوتي"
                       category="audio"
                       value={quickAudioUrl}
                       onChange={(url) => setQuickAudioUrl(url)}
@@ -614,29 +640,31 @@ export const SeriesStudioView: React.FC<Props> = ({
                       onDurationDetected={(durationSecs) => {
                         setQuickDurationSecs(durationSecs);
                       }}
-                      helperText="يُرفع الملف الصوتي مباشرة إلى Cloudflare R2 فائق السرعة مع قياس المدة الزمنية تلقائياً"
+                      helperText="يُرفع إلى R2 وتُحسب المدة تلقائياً."
                     />
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <div className="sm:col-span-2">
-                      <label className="text-xs text-editorial-secondary block mb-1">
-                        عنوان الحلقة *
+                      <label htmlFor="quick-episode-title" className="text-xs text-editorial-secondary block mb-1">
+                        عنوان الحلقة (اختياري)
                       </label>
                       <input
+                        id="quick-episode-title"
                         type="text"
                         value={quickTitle}
                         onChange={(e) => setQuickTitle(e.target.value)}
                         placeholder={`مثال: الحلقة ${quickEpisodeNumber}: البدايات المشوقة`}
-                        className="w-full min-h-11 bg-surface-elevated border border-border-subtle rounded-xl p-2.5 text-xs text-editorial-ivory focus:outline-none focus:border-crimson"
+                        className="w-full min-h-11 bg-surface-elevated border border-border-subtle rounded-xl p-2.5 text-xs text-editorial-ivory focus:outline-none focus:border-crimson focus-visible:ring-2 focus-visible:ring-crimson"
                       />
                     </div>
 
                     <div>
-                      <label className="text-xs text-editorial-secondary block mb-1">
+                      <label htmlFor="quick-episode-number" className="text-xs text-editorial-secondary block mb-1">
                         رقم الحلقة *
                       </label>
                       <input
+                        id="quick-episode-number"
                         type="number"
                         min="1"
                         max="1000"
@@ -646,18 +674,18 @@ export const SeriesStudioView: React.FC<Props> = ({
                           setQuickEpisodeNumber(num);
                           setQuickIsFree(num <= (series.freeEpisodesCount || 2));
                         }}
-                        className="w-full min-h-11 bg-surface-elevated border border-border-subtle rounded-xl p-2.5 text-xs text-editorial-ivory focus:outline-none focus:border-crimson"
+                        className="w-full min-h-11 bg-surface-elevated border border-border-subtle rounded-xl p-2.5 text-xs text-editorial-ivory focus:outline-none focus:border-crimson focus-visible:ring-2 focus-visible:ring-crimson"
                       />
                     </div>
                   </div>
 
                   <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pt-2">
-                    <label className="flex items-center gap-2 text-xs text-editorial-secondary cursor-pointer select-none">
+                    <label className="min-h-11 flex items-center gap-2 text-xs text-editorial-secondary cursor-pointer select-none">
                       <input
                         type="checkbox"
                         checked={quickIsFree}
                         onChange={(e) => setQuickIsFree(e.target.checked)}
-                        className="w-4 h-4 accent-[#A8202A] rounded"
+                        className="w-4 h-4 accent-[#A8202A] rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson"
                       />
                       <span>حلقة مجانية (متاحة للجميع دون اشتراك)</span>
                     </label>
@@ -666,7 +694,7 @@ export const SeriesStudioView: React.FC<Props> = ({
                       <button
                         type="submit"
                         disabled={isSavingQuickEpisode}
-                        className="flex-1 sm:flex-initial min-h-10 px-5 rounded-xl bg-crimson hover:bg-crimson-bright text-white text-xs font-bold flex items-center justify-center gap-2 shadow-halo transition-all disabled:opacity-50"
+                        className="flex-1 sm:flex-initial min-h-11 px-5 rounded-xl bg-crimson hover:bg-crimson-bright text-white text-xs font-bold flex items-center justify-center gap-2 shadow-halo transition-all disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson"
                       >
                         {isSavingQuickEpisode ? (
                           <>
@@ -684,7 +712,7 @@ export const SeriesStudioView: React.FC<Props> = ({
                       <button
                         type="button"
                         onClick={() => setShowQuickAddEpisode(false)}
-                        className="min-h-10 px-4 rounded-xl bg-surface-elevated hover:bg-border-subtle text-editorial-secondary hover:text-editorial-ivory text-xs font-semibold"
+                        className="min-h-11 px-4 rounded-xl bg-surface-elevated hover:bg-border-subtle text-editorial-secondary hover:text-editorial-ivory text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson"
                       >
                         إلغاء
                       </button>
@@ -706,12 +734,12 @@ export const SeriesStudioView: React.FC<Props> = ({
               <div className="p-10 text-center rounded-2xl bg-surface border border-border-subtle space-y-3">
                 <Radio size={30} className="mx-auto text-editorial-muted" />
                 <p className="text-xs text-editorial-secondary">
-                  لا توجد حلقات في هذا الموسم بعد
+                  لا توجد حلقات بعد
                 </p>
                 <button
                   type="button"
                   onClick={() => setShowQuickAddEpisode(true)}
-                  className="px-4 py-2 rounded-xl bg-surface-elevated hover:bg-border-subtle text-editorial-ivory text-xs font-bold inline-flex items-center gap-2 border border-border-subtle transition-colors"
+                  className="min-h-11 px-4 py-2 rounded-xl bg-surface-elevated hover:bg-border-subtle text-editorial-ivory text-xs font-bold inline-flex items-center gap-2 border border-border-subtle transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson"
                 >
                   <Plus size={14} />
                   <span>إضافة أول حلقة الآن</span>
@@ -738,12 +766,13 @@ export const SeriesStudioView: React.FC<Props> = ({
                           type="button"
                           onClick={() => handleToggleAudioPreview(ep)}
                           disabled={isAudioLoading}
-                          className={`w-9 h-9 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center shrink-0 transition-transform active:scale-95 ${
+                          className={`min-w-11 min-h-11 rounded-xl flex items-center justify-center shrink-0 transition-transform active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson ${
                             isAudioPreviewing
                               ? 'bg-crimson text-white shadow-halo scale-105'
                               : 'bg-surface-elevated hover:bg-border-subtle text-editorial-ivory border border-border-subtle'
                           }`}
                           title={isAudioPreviewing ? 'إيقاف المعاينة' : 'معاينة صوتية حية للحلقة'}
+                          aria-label={isAudioPreviewing ? `إيقاف معاينة ${ep.title}` : `معاينة ${ep.title}`}
                         >
                           {isAudioLoading ? (
                             <Loader2 size={16} className="animate-spin text-crimson" />
@@ -756,7 +785,7 @@ export const SeriesStudioView: React.FC<Props> = ({
 
                         <div className="min-w-0 space-y-1">
                           <div className="flex items-center gap-2 flex-wrap">
-                            <span className="w-5 h-5 rounded-md bg-surface-elevated text-editorial-muted text-[10px] font-bold flex items-center justify-center border border-white/5">
+                            <span className="w-5 h-5 rounded-md bg-surface-elevated text-editorial-muted text-[10px] font-bold flex items-center justify-center border border-white/5 shrink-0">
                               {ep.episodeNumber}
                             </span>
                             <h4 className="text-xs sm:text-sm font-bold text-editorial-ivory truncate group-hover:text-crimson transition-colors">
@@ -786,18 +815,19 @@ export const SeriesStudioView: React.FC<Props> = ({
                       </div>
 
                       {/* الطرف الأيسر: شارات المجانية، النص المتزامن، وأزرار الإجراءات */}
-                      <div className="flex items-center gap-2 self-stretch sm:self-auto justify-between sm:justify-end border-t sm:border-t-0 pt-2 sm:pt-0 border-border-subtle/50">
+                      <div className="w-full sm:w-auto flex flex-wrap items-center gap-2 self-stretch sm:self-auto justify-between sm:justify-end border-t sm:border-t-0 pt-2 sm:pt-0 border-border-subtle/50">
                         {/* زر تبديل المجانية بنقرة واحدة */}
                         <button
                           type="button"
                           disabled={togglingFreeId === ep._id}
                           onClick={() => handleToggleFree(ep)}
-                          className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5 ${
+                          className={`min-h-11 px-2.5 py-1 rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson ${
                             ep.isFree
                               ? 'bg-emerald-950/40 text-emerald-400 border border-emerald-800 hover:bg-emerald-900/50'
                               : 'bg-surface-elevated text-editorial-muted border border-border-subtle hover:text-editorial-ivory'
                           }`}
                           title="انقر لتبديل حالة المجانية"
+                          aria-label={`تبديل وصول الحلقة ${ep.episodeNumber}`}
                         >
                           {togglingFreeId === ep._id ? (
                             <Loader2 size={11} className="animate-spin" />
@@ -819,17 +849,18 @@ export const SeriesStudioView: React.FC<Props> = ({
                         <button
                           type="button"
                           onClick={() => setEditingTranscriptEpisode(ep)}
-                          className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 ${
+                          className={`min-h-11 px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson ${
                             ep.hasTranscript
-                              ? 'bg-crimson-subtle text-crimson border border-crimson/40 hover:bg-crimson/20'
+                              ? 'bg-crimson-subtle text-[#E85A65] border border-crimson/40 hover:bg-crimson/20'
                               : 'bg-surface-elevated hover:bg-border-subtle text-editorial-secondary hover:text-editorial-ivory border border-border-subtle'
                           }`}
                           title="إدارة أو استيراد النص المتزامن (SRT/VTT)"
+                          aria-label={`${ep.hasTranscript ? 'تعديل' : 'إضافة'} نص الحلقة ${ep.episodeNumber}`}
                         >
                           <Subtitles size={12} />
                           <span>
                             {ep.hasTranscript
-                              ? `${ep.transcriptSegmentsCount} مقطع`
+                              ? `${ep.transcriptSegmentsCount || 0} مقطع`
                               : '+ النص'}
                           </span>
                         </button>
@@ -838,8 +869,9 @@ export const SeriesStudioView: React.FC<Props> = ({
                         <button
                           type="button"
                           onClick={() => setEditingEpisode(ep)}
-                          className="w-8 h-8 rounded-lg bg-surface hover:bg-surface-elevated border border-border-subtle text-editorial-secondary hover:text-editorial-ivory flex items-center justify-center transition-colors"
+                          className="min-w-11 min-h-11 rounded-lg bg-surface hover:bg-surface-elevated border border-border-subtle text-editorial-secondary hover:text-editorial-ivory flex items-center justify-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson"
                           title="تعديل بيانات الحلقة بالكامل"
+                          aria-label={`تعديل الحلقة ${ep.episodeNumber}: ${ep.title}`}
                         >
                           <Pencil size={13} />
                         </button>
@@ -848,8 +880,9 @@ export const SeriesStudioView: React.FC<Props> = ({
                         <button
                           type="button"
                           onClick={() => setDeletingEpisode(ep)}
-                          className="w-8 h-8 rounded-lg bg-surface hover:bg-red-950/40 border border-border-subtle hover:border-red-800 text-editorial-secondary hover:text-red-300 flex items-center justify-center transition-colors"
+                          className="min-w-11 min-h-11 rounded-lg bg-surface hover:bg-red-950/40 border border-border-subtle hover:border-red-800 text-editorial-secondary hover:text-red-300 flex items-center justify-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300"
                           title="حذف الحلقة"
+                          aria-label={`حذف الحلقة ${ep.episodeNumber}: ${ep.title}`}
                         >
                           <Trash2 size={13} />
                         </button>

@@ -30,6 +30,8 @@ interface MediaUploadDropzoneProps {
   label: string;
   category: MediaCategory;
   value: string;
+  /** Persisted storage key (important for protected audio with no public URL). */
+  storageKey?: string;
   onChange: (url: string) => void;
   onStorageKeyChange?: (storageKey: string) => void;
   onTranscriptParsed?: (segments: any[]) => void;
@@ -109,6 +111,7 @@ export const MediaUploadDropzone: React.FC<MediaUploadDropzoneProps> = ({
   label,
   category,
   value,
+  storageKey,
   onChange,
   onStorageKeyChange,
   onTranscriptParsed,
@@ -138,6 +141,12 @@ export const MediaUploadDropzone: React.FC<MediaUploadDropzoneProps> = ({
       }
     };
   }, []);
+
+  useEffect(() => {
+    return () => {
+      if (localPreviewUrl) URL.revokeObjectURL(localPreviewUrl);
+    };
+  }, [localPreviewUrl]);
 
   const getAcceptedMimes = () => {
     switch (category) {
@@ -246,6 +255,7 @@ export const MediaUploadDropzone: React.FC<MediaUploadDropzoneProps> = ({
       } catch {}
     }
 
+    let cleanupAuthorizedUpload: (() => Promise<void>) | null = null;
     try {
       // 1. إذا كان الملف نصاً متزامناً، نقوم بتحليله محلياً فوراً لمنح تجربة مستخدم سريعة جداً
       if (category === 'transcript') {
@@ -273,10 +283,33 @@ export const MediaUploadDropzone: React.FC<MediaUploadDropzoneProps> = ({
         throw new Error(authData.error || 'فشل الحصول على ترخيص رفع الملف');
       }
 
-      let directSuccess = false;
+      const authorizedStorageKey = typeof authData.storageKey === 'string' ? authData.storageKey : '';
+      if (!authorizedStorageKey) {
+        throw new Error('استجابة الرفع لا تحتوي على معرف تخزين صالح');
+      }
+
+      // إذا نجح الرفع إلى R2 ثم فشل الاعتماد النهائي، نحذف الكائن المعزول
+      // حتى لا تتراكم ملفات يتيمة في الحاوية ولا تظهر في لوحة الإدارة.
+      let cleanupPromise: Promise<void> | null = null;
+      cleanupAuthorizedUpload = (): Promise<void> => {
+        if (!cleanupPromise) {
+          cleanupPromise = fetch('/api/v1/admin/upload', {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              key: authorizedStorageKey,
+              ticket: authData.ticket,
+            }),
+          })
+            .then(() => undefined)
+            .catch(() => undefined);
+        }
+        return cleanupPromise;
+      };
 
       // 3. مسار الرفع المباشر (Direct Upload to Cloudflare R2 via Presigned URL)
       if (authData.directR2 && authData.uploadUrl) {
+        let directUploadError: Error | null = null;
         try {
           await new Promise<void>((resolve, reject) => {
             const xhr = new XMLHttpRequest();
@@ -293,7 +326,6 @@ export const MediaUploadDropzone: React.FC<MediaUploadDropzoneProps> = ({
 
             xhr.onload = () => {
               if (xhr.status >= 200 && xhr.status < 300) {
-                directSuccess = true;
                 resolve();
               } else {
                 reject(new Error(`فشل الرفع المباشر إلى Cloudflare R2 برمز ${xhr.status}`));
@@ -306,19 +338,23 @@ export const MediaUploadDropzone: React.FC<MediaUploadDropzoneProps> = ({
 
             xhr.send(file);
           });
-        } catch (directErr) {
-          console.warn('Direct R2 upload encountered an issue:', directErr);
-          directSuccess = false;
+        } catch (directErr: any) {
+          directUploadError = directErr;
         }
-      }
 
-      // 4. اعتماد وتوثيق الملف المرفوع في الخادم - إرسال تذكرة التفويض الموقعة للتحقق الصارم
-      if (directSuccess) {
+        if (directUploadError) {
+          if (cleanupAuthorizedUpload) {
+            await cleanupAuthorizedUpload();
+          }
+          throw directUploadError;
+        }
+
+        // 4. اعتماد وتوثيق الملف المرفوع في الخادم - إرسال تذكرة التفويض الموقعة للتحقق الصارم
         const finalizeRes = await fetch('/api/v1/admin/upload/finalize', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            storageKey: authData.storageKey,
+            storageKey: authorizedStorageKey,
             category,
             fileName: file.name,
             ticket: authData.ticket,
@@ -327,6 +363,9 @@ export const MediaUploadDropzone: React.FC<MediaUploadDropzoneProps> = ({
 
         const finalizeData = await finalizeRes.json().catch(() => ({}));
         if (!finalizeRes.ok || !finalizeData.success) {
+          if (cleanupAuthorizedUpload) {
+            await cleanupAuthorizedUpload();
+          }
           throw new Error(finalizeData.error || 'فشل اعتماد وتوثيق الملف في قاعدة البيانات');
         }
 
@@ -334,20 +373,10 @@ export const MediaUploadDropzone: React.FC<MediaUploadDropzoneProps> = ({
         const finalUrl = category === 'audio' ? '' : (finalizeData.publicUrl || authData.publicUrl || '');
         onChange(finalUrl);
         if (onStorageKeyChange) {
-          onStorageKeyChange(authData.storageKey);
+          onStorageKeyChange(authorizedStorageKey);
         }
-      } else {
-        // إذا فشل الرفع المباشر (مثل سياسة CORS غير المضبوطة في المتصفح أو تعذر الاتصال المباشر)
-        // التحقق من أن حجم الملف ضمن سعة المعالجة عبر خادم المنصة (أقل من 4.2 ميغابايت)
-        const MAX_SERVER_PAYLOAD = 4.2 * 1024 * 1024; // 4.2MB
-        if (file.size > MAX_SERVER_PAYLOAD) {
-          throw new Error(
-            `تعذر الرفع المباشر إلى Cloudflare R2 بسبب عدم ضبط سياسة CORS على الحاوية في لوحة Cloudflare، وحجم الملف (${(file.size / (1024 * 1024)).toFixed(1)} ميغابايت) يتجاوز الحد الأقصى للمعالجة عبر الخادم (4.2 ميغابايت). يرجى إضافة سياسة CORS في لوحة تحكم Cloudflare R2.`
-          );
-        }
-
-        // مسار الإنقاذ الآمن والموثوق: رفع الملف مباشرة إلى R2 عبر خادم المنصة بدون أي قيود CORS للمتصفح
-        // ضمان إرسال الملف بـ Content-Type الصحيح لتفادي مشاكل المتصفحات مع الأنواع الفارغة
+      } else if (authData.fallbackUploadUrl) {
+        // مسار التخزين الاحتياطي (فقط في بيئة التطوير المحلية المستقلة عند عدم توفر R2)
         const fileToSend =
           file.type === effectiveFileType
             ? file
@@ -359,7 +388,7 @@ export const MediaUploadDropzone: React.FC<MediaUploadDropzoneProps> = ({
           formData.append('category', category);
 
           const xhr = new XMLHttpRequest();
-          xhr.open('POST', '/api/v1/admin/upload');
+          xhr.open('POST', authData.fallbackUploadUrl);
 
           xhr.upload.onprogress = (e) => {
             if (e.lengthComputable) {
@@ -388,11 +417,16 @@ export const MediaUploadDropzone: React.FC<MediaUploadDropzoneProps> = ({
           xhr.onerror = () => reject(new Error('فشل الاتصال بالخادم أثناء الرفع'));
           xhr.send(formData);
         });
+      } else {
+        throw new Error(authData.error || 'خدمة رفع الوسائط غير متاحة');
       }
 
       setIsUploading(false);
       setUploadPercent(100);
     } catch (err: any) {
+      if (cleanupAuthorizedUpload) {
+        await cleanupAuthorizedUpload();
+      }
       setIsUploading(false);
       setUploadError(err.message || 'حدث خطأ أثناء رفع الملف، يرجى المحاولة ثانية');
     }
@@ -425,31 +459,23 @@ export const MediaUploadDropzone: React.FC<MediaUploadDropzoneProps> = ({
     }
   };
 
-  const handleDeleteMedia = async () => {
+  const handleDeleteMedia = () => {
     if (isPlayingAudio && audioPreviewRef.current) {
       audioPreviewRef.current.pause();
       setIsPlayingAudio(false);
     }
     setLocalPreviewUrl(null);
     setAudioDuration(null);
-    const currentVal = value;
     onChange('');
     if (onStorageKeyChange) onStorageKeyChange('');
-
-    // محاولة حذف الملف في الخلفية
-    if (currentVal) {
-      fetch('/api/v1/admin/upload', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: currentVal }),
-      }).catch(() => {});
-    }
   };
 
   const isImageCategory = ['poster', 'hero', 'image'].includes(category);
   const isAudioCategory = category === 'audio';
   const isVideoCategory = category === 'video';
   const previewSource = localPreviewUrl || value;
+  const hasMedia = Boolean(value || storageKey || localPreviewUrl);
+  const displayedName = value.split('/').pop() || storageKey?.split('/').pop() || lastUploadedFile?.name || 'الملف المرفوع';
 
   return (
     <div className="space-y-2 select-none">
@@ -457,7 +483,7 @@ export const MediaUploadDropzone: React.FC<MediaUploadDropzoneProps> = ({
         <label className="text-xs text-editorial-secondary font-semibold block">
           {label} {required && <span className="text-crimson">*</span>}
         </label>
-        {value && (
+        {hasMedia && (
           <span className="text-[11px] text-emerald-400 font-medium flex items-center gap-1">
             <Check size={12} />
             <span>ملف مرفوع ومحفوظ</span>
@@ -474,15 +500,15 @@ export const MediaUploadDropzone: React.FC<MediaUploadDropzoneProps> = ({
       />
 
       {/* الحالة 1: يوجد ملف مرفوع مسبقاً (معاينة فخمة وخيارات استبدال وحذف) */}
-      {(value || localPreviewUrl) && !isUploading ? (
+      {hasMedia && !isUploading ? (
         <div className="relative p-3.5 bg-surface-elevated/80 border border-border-subtle rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 group hover:border-crimson/40 transition-colors">
           <div className="flex items-center gap-3 min-w-0 w-full sm:w-auto">
             {isImageCategory && (
               // eslint-disable-next-line @next/next/no-img-element
               <img
-                src={previewSource}
+                src={previewSource || '/branding/icon.svg'}
                 alt="معاينة البوستر"
-                className="w-16 h-16 object-cover rounded-lg border border-border-subtle bg-black shrink-0 shadow-sm"
+                className="w-16 h-16 object-contain rounded-lg border border-border-subtle bg-black shrink-0 shadow-sm"
                 onError={(e) => {
                   (e.target as HTMLElement).style.display = 'none';
                 }}
@@ -494,8 +520,9 @@ export const MediaUploadDropzone: React.FC<MediaUploadDropzoneProps> = ({
                 <button
                   type="button"
                   onClick={handleAudioToggle}
-                  className="w-12 h-12 rounded-xl bg-crimson/20 border border-crimson/40 text-crimson hover:bg-crimson hover:text-white flex items-center justify-center transition-all shadow-sm shrink-0"
+                  className="min-w-12 min-h-12 rounded-xl bg-crimson/20 border border-crimson/40 text-crimson hover:bg-crimson hover:text-white flex items-center justify-center transition-all shadow-sm shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson"
                   title={isPlayingAudio ? 'إيقاف مؤقت' : 'استماع للمعاينة'}
+                  aria-label={isPlayingAudio ? 'إيقاف معاينة الصوت' : 'تشغيل معاينة الصوت'}
                 >
                   {isPlayingAudio ? <Pause size={20} /> : <Play size={20} className="mr-0.5" />}
                 </button>
@@ -524,7 +551,7 @@ export const MediaUploadDropzone: React.FC<MediaUploadDropzoneProps> = ({
 
             <div className="min-w-0 flex-1">
               <p className="text-xs text-editorial-ivory font-bold truncate max-w-xs" dir="ltr">
-                {value.split('/').pop() || 'الملف المرفوع'}
+                {displayedName}
               </p>
               <div className="flex items-center gap-2 mt-1 text-[11px] text-editorial-muted">
                 {audioDuration && <span>المدة: {audioDuration} دقيقة</span>}
@@ -537,7 +564,8 @@ export const MediaUploadDropzone: React.FC<MediaUploadDropzoneProps> = ({
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="px-3 py-1.5 text-xs bg-surface hover:bg-border-subtle border border-border-strong text-editorial-ivory rounded-lg transition-colors flex items-center gap-1.5"
+              className="min-h-11 px-3 py-1.5 text-xs bg-surface hover:bg-border-subtle border border-border-strong text-editorial-ivory rounded-lg transition-colors flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson"
+              aria-label="استبدال الملف"
             >
               <RefreshCw size={13} />
               <span>استبدال</span>
@@ -545,8 +573,9 @@ export const MediaUploadDropzone: React.FC<MediaUploadDropzoneProps> = ({
             <button
               type="button"
               onClick={handleDeleteMedia}
-              className="p-1.5 text-editorial-muted hover:text-crimson rounded-lg hover:bg-crimson/10 border border-transparent hover:border-crimson/20 transition-colors"
+              className="min-w-11 min-h-11 p-1.5 text-editorial-muted hover:text-crimson rounded-lg hover:bg-crimson/10 border border-transparent hover:border-crimson/20 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson"
               title="حذف الملف"
+              aria-label="حذف الملف"
             >
               <Trash2 size={15} />
             </button>
@@ -559,7 +588,18 @@ export const MediaUploadDropzone: React.FC<MediaUploadDropzoneProps> = ({
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
           onClick={() => !isUploading && fileInputRef.current?.click()}
-          className={`relative border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-all ${
+          onKeyDown={(event) => {
+            if (!isUploading && (event.key === 'Enter' || event.key === ' ')) {
+              event.preventDefault();
+              fileInputRef.current?.click();
+            }
+          }}
+          role="button"
+          tabIndex={isUploading ? -1 : 0}
+          aria-disabled={isUploading}
+          aria-busy={isUploading}
+          aria-label={isUploading ? 'جاري رفع الملف' : `اختيار ${label}`}
+          className={`relative border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson focus-visible:ring-offset-2 focus-visible:ring-offset-obsidian ${
             isDragging
               ? 'border-crimson bg-crimson/10 scale-[1.01]'
               : 'border-border-subtle hover:border-crimson/50 bg-surface-elevated/40 hover:bg-surface-elevated/70'
@@ -596,10 +636,10 @@ export const MediaUploadDropzone: React.FC<MediaUploadDropzoneProps> = ({
                   انقر لاختيار ملف، أو اسحبه وأفلته هنا مباشرة
                 </p>
                 <p className="text-[11px] text-editorial-muted mt-1">
-                  {category === 'audio' && 'صيغ الصوت المدعومة: MP3, WAV, M4A, FLAC (حتى 500 ميغابايت)'}
-                  {category === 'poster' && 'صيغ البوستر المدعومة: JPG, PNG, WEBP, AVIF (حتى 20 ميغابايت)'}
-                  {category === 'hero' && 'غلاف هيرو عريض سينمائي: 16:9 أو 21:9 بدقة عالية'}
-                  {category === 'video' && 'مقاطع فيديو ترويجية قصيرة: MP4, WEBM (حتى 300 ميغابايت)'}
+                  {category === 'audio' && 'صيغ الصوت المدعومة: MP3, WAV, M4A, FLAC — رفع مباشر إلى R2'}
+                  {category === 'poster' && 'صيغ البوستر المدعومة: JPG, PNG, WEBP, AVIF — رفع مباشر إلى R2'}
+                  {category === 'hero' && 'غلاف هيرو عريض سينمائي: 16:9 أو 21:9 بدقة عالية — رفع مباشر إلى R2'}
+                  {category === 'video' && 'مقاطع فيديو ترويجية قصيرة: MP4, WEBM — رفع مباشر إلى R2'}
                   {category === 'transcript' && 'ملفات نصوص متزامنة: SRT أو WebVTT أو JSON'}
                 </p>
               </div>
@@ -619,7 +659,7 @@ export const MediaUploadDropzone: React.FC<MediaUploadDropzoneProps> = ({
             <button
               type="button"
               onClick={() => uploadFile(lastUploadedFile)}
-              className="px-2.5 py-1 bg-red-900/60 hover:bg-red-800 text-white rounded text-[11px] font-bold flex items-center gap-1 shrink-0 transition-colors"
+              className="min-h-10 px-2.5 py-1 bg-red-900/60 hover:bg-red-800 text-white rounded text-[11px] font-bold flex items-center gap-1 shrink-0 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300"
             >
               <RotateCcw size={12} />
               <span>إعادة المحاولة</span>

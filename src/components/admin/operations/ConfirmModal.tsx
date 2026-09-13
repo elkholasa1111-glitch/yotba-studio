@@ -104,7 +104,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
             <div
               className={`flex h-11 w-11 items-center justify-center rounded-full ${
                 isDestructive
-                  ? 'bg-crimson-subtle text-crimson'
+                  ? 'bg-crimson-subtle text-[#E85A65]'
                   : 'bg-surface-elevated text-editorial-ivory'
               }`}
               aria-hidden="true"

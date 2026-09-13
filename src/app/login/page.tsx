@@ -4,6 +4,12 @@ import { FormEvent, useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ShieldCheck, ArrowUpRight, Loader2 } from 'lucide-react';
 import Link from 'next/link';
+import { resolvePublicPlatformUrl } from '@/lib/config/public-platform';
+
+function safeReturnTo(value: unknown): string {
+  if (typeof value !== 'string' || !value.startsWith('/') || value.startsWith('//')) return '/';
+  return value;
+}
 
 function AdminLoginForm() {
   const router = useRouter();
@@ -28,8 +34,8 @@ function AdminLoginForm() {
         setError(result.error || 'تعذر تسجيل الدخول');
         return;
       }
-      const returnTo = params.get('returnTo');
-      router.replace(returnTo || '/');
+      const returnTo = safeReturnTo(params.get('returnTo'));
+      router.replace(returnTo);
       router.refresh();
     } catch {
       setError('تعذر الاتصال بالخادم. أعد المحاولة.');
@@ -66,7 +72,7 @@ function AdminLoginForm() {
           type="email"
           autoComplete="username"
           required
-          placeholder="admin@yotba.com"
+          placeholder="name@example.com"
           className="w-full min-h-11 rounded-lg border border-border-subtle bg-obsidian-900 px-3 py-3 text-editorial-ivory focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#E85A65]"
         />
       </label>
@@ -133,12 +139,12 @@ export default function AdminLoginPage() {
         {/* Link to Live Public Platform */}
         <div className="text-center pt-2">
           <Link
-            href="https://yotba.vercel.app"
+            href={resolvePublicPlatformUrl('/')}
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-1.5 text-xs text-editorial-muted hover:text-editorial-ivory transition-colors"
           >
-            <span>الانتقال إلى منصة الاستماع العامة (yotba.vercel.app)</span>
+            <span>الانتقال إلى منصة الاستماع العامة</span>
             <ArrowUpRight size={14} />
           </Link>
         </div>

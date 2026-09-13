@@ -82,7 +82,7 @@ export const AdminSeasonsView: React.FC<Props> = ({
             <span>إدارة مواسم المسلسلات</span>
           </h2>
           <p className="text-xs text-editorial-muted">
-            اختر العمل لعرض وتعديل مواسمه وتسعيرها
+            عرض وتعديل مواسم وتسعير العمل المختار
           </p>
         </div>
 
@@ -92,7 +92,9 @@ export const AdminSeasonsView: React.FC<Props> = ({
             <select
               value={selectedSeriesId}
               onChange={(e) => setSelectedSeriesId(e.target.value)}
-              className="w-full min-h-10 ps-3 pe-8 rounded-xl bg-surface-elevated border border-border-subtle text-xs text-editorial-ivory appearance-none focus:outline-none focus:border-crimson"
+              disabled={seriesList.length === 0}
+              aria-label="اختيار المسلسل"
+              className="w-full min-h-11 ps-3 pe-8 rounded-xl bg-surface-elevated border border-border-subtle text-xs text-editorial-ivory appearance-none focus:outline-none focus:border-crimson focus-visible:ring-2 focus-visible:ring-crimson disabled:opacity-50"
             >
               {seriesList.map((s) => (
                 <option key={s._id} value={s._id}>
@@ -110,7 +112,7 @@ export const AdminSeasonsView: React.FC<Props> = ({
             <button
               type="button"
               onClick={() => setEditingSeason('NEW')}
-              className="min-h-10 px-4 rounded-xl bg-crimson hover:bg-crimson-bright text-white text-xs font-bold flex items-center gap-2 shadow-halo shrink-0 transition-transform active:scale-95"
+              className="min-h-11 px-4 rounded-xl bg-crimson hover:bg-crimson-bright text-white text-xs font-bold flex items-center gap-2 shadow-halo shrink-0 transition-transform active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson"
             >
               <Plus size={16} />
               <span>موسم جديد</span>
@@ -149,23 +151,24 @@ export const AdminSeasonsView: React.FC<Props> = ({
                   )}
                 </div>
 
-                <div className="pt-3 border-t border-border-subtle flex items-center justify-between text-xs">
+                <div className="pt-3 border-t border-border-subtle flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
                   <div className="space-y-0.5">
                     <span className="text-[11px] text-editorial-muted block">
-                      سعر شراء الموسم للأبد
+                      سعر الموسم الكامل
                     </span>
-                    <span className="font-bold text-editorial-ivory font-mono">
+                    <span className="font-bold text-editorial-ivory font-mono" dir="ltr">
                       ${season.price ?? 0.5} {season.currency || 'USD'}
                     </span>
                   </div>
 
-                  <div className="flex items-center gap-2">
+                  <div className="w-full sm:w-auto flex flex-wrap items-center justify-end gap-2">
                     {/* الانتقال المباشر لحلقات هذا الموسم */}
                     <button
                       type="button"
                       onClick={() => onManageEpisodes(currentSeries._id, season._id)}
-                      className="min-h-8 px-3 rounded-lg bg-surface-elevated hover:bg-border-subtle border border-border-subtle text-editorial-ivory text-xs font-semibold flex items-center gap-1.5 transition-colors"
+                      className="min-h-11 px-3 rounded-lg bg-surface-elevated hover:bg-border-subtle border border-border-subtle text-editorial-ivory text-xs font-semibold flex items-center gap-1.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson"
                       title="عرض وتعديل حلقات هذا الموسم"
+                      aria-label={`حلقات ${season.title}`}
                     >
                       <Radio size={13} className="text-emerald-400" />
                       <span>{season.episodes?.length || 0} حلقة</span>
@@ -175,8 +178,9 @@ export const AdminSeasonsView: React.FC<Props> = ({
                     <button
                       type="button"
                       onClick={() => setEditingSeason(season)}
-                      className="w-8 h-8 rounded-lg bg-surface hover:bg-surface-elevated border border-border-subtle text-editorial-secondary hover:text-editorial-ivory flex items-center justify-center transition-colors"
+                      className="min-w-11 min-h-11 rounded-lg bg-surface hover:bg-surface-elevated border border-border-subtle text-editorial-secondary hover:text-editorial-ivory flex items-center justify-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson"
                       title="تعديل بيانات وتسعير الموسم"
+                      aria-label={`تعديل ${season.title}`}
                     >
                       <Pencil size={13} />
                     </button>
@@ -185,8 +189,9 @@ export const AdminSeasonsView: React.FC<Props> = ({
                     <button
                       type="button"
                       onClick={() => setDeletingSeason(season)}
-                      className="w-8 h-8 rounded-lg bg-surface hover:bg-red-950/40 border border-border-subtle hover:border-red-800 text-editorial-secondary hover:text-red-300 flex items-center justify-center transition-colors"
+                      className="min-w-11 min-h-11 rounded-lg bg-surface hover:bg-red-950/40 border border-border-subtle hover:border-red-800 text-editorial-secondary hover:text-red-300 flex items-center justify-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300"
                       title="حذف الموسم بالكامل"
+                      aria-label={`حذف ${season.title}`}
                     >
                       <Trash2 size={13} />
                     </button>
@@ -205,7 +210,7 @@ export const AdminSeasonsView: React.FC<Props> = ({
               <button
                 type="button"
                 onClick={() => setEditingSeason('NEW')}
-                className="min-h-9 px-4 rounded-xl bg-crimson hover:bg-crimson-bright text-white text-xs font-bold inline-flex items-center gap-2"
+                className="min-h-11 px-4 rounded-xl bg-crimson hover:bg-crimson-bright text-white text-xs font-bold inline-flex items-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson"
               >
                 <Plus size={14} />
                 <span>إضافة الموسم الأول</span>

@@ -8,12 +8,18 @@ import { isValidObjectId } from 'mongoose';
 import { getCurrentAdmin } from '@/lib/auth';
 import { connectDB } from '@/lib/db/connect';
 import { Episode } from '@/lib/db/models';
-import { StorageService } from '@/lib/storage';
-import { hasR2Configuration, isProductionRuntime } from '@/lib/config/runtime';
+import { StorageService, getLegacyMultipartUploadPolicy } from '@/lib/storage';
 import { jsonOk, jsonError, writeAudit } from '@/lib/admin/content-api';
+import {
+  CONTENT_PREVIEW_ROLES,
+  validateAudioPreviewPolicy,
+  resolvePublicPlatformUrl,
+} from '@/lib/config/public-platform';
 
-const CONTENT_ROLES = ['SUPER_ADMIN', 'ADMIN', 'CONTENT_EDITOR'];
-const MAX_AUDIO_BYTES = 50 * 1024 * 1024; // 50MB — حد مناسب لبيئات serverless
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
+const CONTENT_ROLES = CONTENT_PREVIEW_ROLES as readonly string[];
 
 /** قائمة MIME المسموحة مع الامتداد الآمن المقابل (لا نستخدم اسم الملف أبداً) */
 const ALLOWED_AUDIO_TYPES: Record<string, string> = {
@@ -34,9 +40,14 @@ export async function POST(req: Request) {
   if (!admin) return jsonError('غير مصرح لك', 401);
   if (!CONTENT_ROLES.includes(admin.role)) return jsonError('ليس لديك صلاحية تعديل المحتوى', 403);
 
-  // في الإنتاج يتطلب الرفع ضبط R2 — لا محاكاة إطلاقاً في الإنتاج
-  if (!hasR2Configuration() && isProductionRuntime()) {
-    return jsonError('خدمة التخزين غير مهيأة في هذه البيئة — لا يمكن الرفع', 503);
+  // في الإنتاج: يُمنع استخدام مسار multipart القديم ويشترط الرفع المباشر إلى Cloudflare R2
+  const uploadPolicy = getLegacyMultipartUploadPolicy();
+  if (!uploadPolicy.allowed) {
+    return jsonError(
+      uploadPolicy.errorMessage ||
+        'رفع الملفات الصوتية عبر multipart غير مدعوم في بيئة الإنتاج. يجب استخدام مسار الرفع المباشر من المتصفح إلى Cloudflare R2.',
+      400
+    );
   }
 
   const contentType = req.headers.get('content-type') || '';
@@ -64,10 +75,6 @@ export async function POST(req: Request) {
   if (!(file instanceof File) || file.size === 0) {
     return jsonError('ملف الصوت مطلوب', 400);
   }
-  if (file.size > MAX_AUDIO_BYTES) {
-    return jsonError('حجم الملف يتجاوز الحد الأقصى (50 ميغابايت)', 413);
-  }
-
   const fileContentType = (file.type || '').toLowerCase();
   const extension = ALLOWED_AUDIO_TYPES[fileContentType];
   if (!extension) {
@@ -90,9 +97,6 @@ export async function POST(req: Request) {
   try {
     await StorageService.uploadMedia(storageKey, buffer, fileContentType);
   } catch (error) {
-    if (!hasR2Configuration()) {
-      return jsonError('خدمة التخزين غير مهيأة — لا يمكن الرفع', 503);
-    }
     console.error('Admin audio upload error:', error);
     return jsonError('فشل رفع الملف إلى التخزين', 503);
   }
@@ -116,4 +120,63 @@ export async function POST(req: Request) {
     sizeBytes: file.size,
     contentType: fileContentType,
   });
+}
+// GET: جلب رابط البث الصوتي الآمن للمعاينة الإدارية (حصراً للمشرفين المصرح لهم)
+export async function GET(req: Request) {
+  const admin = await getCurrentAdmin();
+  if (!admin) return jsonError('غير مصرح لك — يرجى تسجيل الدخول كمسؤول', 401);
+  if (!CONTENT_ROLES.includes(admin.role)) {
+    return jsonError('ليس لديك صلاحية معاينة الصوتيات الإدارية', 403);
+  }
+
+  const { searchParams } = new URL(req.url);
+  const episodeId = searchParams.get('episodeId');
+  if (!episodeId || !isValidObjectId(episodeId)) {
+    return jsonError('معرّف الحلقة غير صالح', 400);
+  }
+
+  const conn = await connectDB();
+  if (!conn) return jsonError('قاعدة البيانات غير متاحة', 503);
+
+  const episode = await Episode.findById(episodeId);
+  if (!episode) return jsonError('الحلقة غير موجودة', 404);
+
+  const policy = validateAudioPreviewPolicy(episode);
+  if (!policy.canPreview) {
+    if (policy.reason === 'PREMIUM_REQUIRES_PROTECTED_STORAGE_KEY') {
+      return jsonError('هذه الحلقة مدفوعة ولا تملك ملفاً صوتياً في التخزين المحمي R2. لا يمكن استخدام روابط عامة للصوت المدفوع.', 400);
+    }
+    return jsonError('لا يوجد ملف صوتي متاح لمعاينة هذه الحلقة', 404);
+  }
+
+  if (policy.streamType === 'protected' && episode.audioStorageKey) {
+    try {
+      const streamUrl = await StorageService.getProtectedAudioUrl(episode.audioStorageKey, 900);
+      return jsonOk({
+        streamUrl,
+        isProtected: true,
+        durationMs: episode.durationMs,
+        title: episode.title,
+      });
+    } catch (storageErr) {
+      console.warn('Storage fetch failed for audio preview:', storageErr);
+      return jsonError('تعذر توليد رابط البث من خدمة التخزين', 503);
+    }
+  }
+
+  if (policy.streamType === 'public_free' && episode.audioPublicUrl) {
+    const rawUrl = episode.audioPublicUrl.trim();
+    let streamUrl = rawUrl;
+    if (rawUrl.startsWith('/')) {
+      streamUrl = resolvePublicPlatformUrl(rawUrl);
+    }
+    return jsonOk({
+      streamUrl,
+      isProtected: false,
+      durationMs: episode.durationMs,
+      title: episode.title,
+    });
+  }
+
+  return jsonError('الملف الصوتي غير متوفر لهذه الحلقة', 404);
 }

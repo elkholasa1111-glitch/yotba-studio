@@ -14,7 +14,7 @@ import {
 
 export async function GET(
   _req: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const admin = await getCurrentAdmin();
   if (!admin) {
@@ -26,7 +26,8 @@ export async function GET(
     return jsonError('قاعدة البيانات غير متاحة حالياً', 503);
   }
 
-  const userId = cleanText(params.id);
+  const { id } = await params;
+  const userId = cleanText(id);
   if (!isValidMongoId(userId)) {
     return jsonError('معرّف المستخدم غير صالح', 400);
   }

@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { normalizeEnv } from '@/lib/config/runtime';
 
 interface MongooseCache {
   conn: typeof mongoose | null;
@@ -6,28 +7,39 @@ interface MongooseCache {
 }
 
 declare global {
-  // eslint-disable-next-line no-var
   var mongooseCache: MongooseCache | undefined;
 }
 
-let cached: MongooseCache = global.mongooseCache || { conn: null, promise: null };
-
-if (!global.mongooseCache) {
-  global.mongooseCache = cached;
+function getCache(): MongooseCache {
+  if (!global.mongooseCache) {
+    global.mongooseCache = { conn: null, promise: null };
+  }
+  return global.mongooseCache;
 }
 
 export async function connectDB(): Promise<typeof mongoose | null> {
-  const uri = process.env.MONGODB_URI?.trim();
+  const uri = normalizeEnv(process.env.MONGODB_URI);
   if (!uri) {
     // الخدمات الأعلى مستوى تقرر صراحةً هل تسمح بوضع الديمو؛ لا نفترض ذلك في الإنتاج.
     return null;
   }
 
-  if (cached.conn && cached.conn.connection.readyState === 1) {
-    return cached.conn;
+  const cache = getCache();
+
+  // 1. إعادة استخدام الاتصال النشط فوراً عند وجوده (Reuse when connected)
+  if (cache.conn && cache.conn.connection.readyState === 1) {
+    return cache.conn;
   }
 
-  if (!cached.promise) {
+  // 2. إذا كان الاتصال المحفوظ منقطعاً أو في حالة غير متصلة (stale / disconnected)،
+  // نلغي الكاش الميت والوعد المرتبط به لتمكين إعادة الاتصال بأمان
+  if (cache.conn && cache.conn.connection.readyState !== 1) {
+    cache.conn = null;
+    cache.promise = null;
+  }
+
+  // 3. منع الاتصالات المكررة المتزامنة (Single-flight): إذا كان هناك طلب اتصال جارٍ ننتظره
+  if (!cache.promise) {
     const opts = {
       bufferCommands: false,
       maxPoolSize: 10,
@@ -35,24 +47,34 @@ export async function connectDB(): Promise<typeof mongoose | null> {
       socketTimeoutMS: 45000,
     };
 
-    cached.promise = mongoose.connect(uri, opts).then((m) => {
+    cache.promise = mongoose.connect(uri, opts).then((m) => {
       console.log('✅ Connected successfully to MongoDB Atlas');
       return m;
     }).catch((err) => {
       console.error('❌ MongoDB Atlas connection error:', err);
-      cached.promise = null;
       throw err;
     });
   }
 
+  const currentPromise = cache.promise;
   try {
-    cached.conn = await cached.promise;
+    const conn = await currentPromise;
+    if (!conn || conn.connection.readyState !== 1) {
+      cache.conn = null;
+      throw new Error('MongoDB connection is not in ready state');
+    }
+    cache.conn = conn;
+    return cache.conn;
   } catch (e) {
-    cached.promise = null;
+    cache.conn = null;
     throw e;
+  } finally {
+    // تصفير الوعد بعد اكتمال محاولة الاتصال بأمان (نجاحاً أو فشلاً)
+    // لتجنب بقاء الوعد resolved في الحالات الخاملة وتجاوز إعادة الاتصال
+    if (cache.promise === currentPromise) {
+      cache.promise = null;
+    }
   }
-
-  return cached.conn;
 }
 
 export interface DatabaseHealthStatus {
@@ -68,7 +90,7 @@ export interface DatabaseHealthStatus {
  * لا يكتب أي بيانات ولا يسرب معلومات الاتصال أو الأخطاء الخام.
  */
 export async function checkDatabaseHealth(timeoutMs: number = 5000): Promise<DatabaseHealthStatus> {
-  const uri = process.env.MONGODB_URI?.trim();
+  const uri = normalizeEnv(process.env.MONGODB_URI);
   if (!uri) {
     return {
       provider: 'mongodb_atlas',

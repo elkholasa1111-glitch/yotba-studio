@@ -26,18 +26,22 @@ interface AdminCommentsViewProps {
 export const AdminCommentsView: React.FC<AdminCommentsViewProps> = ({ onNotice }) => {
   const [reports, setReports] = useState<ReportItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
 
   const fetchReports = useCallback(async () => {
     setIsLoading(true);
+    setLoadError(null);
     try {
       const res = await fetch('/api/v1/admin/moderation');
-      if (res.ok) {
-        const data = await res.json();
-        setReports(data.reports || []);
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(data?.error || 'تعذر تحميل البلاغات');
       }
-    } catch (e) {
-      console.error('Failed to fetch moderation reports:', e);
+      setReports(Array.isArray(data?.reports) ? data.reports : []);
+    } catch (error) {
+      console.error('Failed to fetch moderation reports:', error);
+      setLoadError(error instanceof Error ? error.message : 'تعذر تحميل البلاغات');
     } finally {
       setIsLoading(false);
     }
@@ -79,17 +83,18 @@ export const AdminCommentsView: React.FC<AdminCommentsViewProps> = ({ onNotice }
         <div>
           <h2 className="text-xl font-black font-display text-editorial-ivory flex items-center gap-2">
             <MessageSquare className="w-5 h-5 text-crimson" />
-            إشراف التعليقات وطابور البلاغات
+            بلاغات التعليقات
           </h2>
           <p className="text-xs text-editorial-secondary mt-1">
-            مراجعة تعليقات المستمعين المبلغ عنها لحماية مجتمع المنصة من المحتوى المخالف
+            راجع البلاغات واتخذ الإجراء المناسب.
           </p>
         </div>
         <button
           type="button"
           onClick={fetchReports}
           disabled={isLoading}
-          className="flex items-center gap-2 px-3 py-2 bg-surface-elevated hover:bg-border-subtle text-editorial-secondary hover:text-editorial-ivory text-xs rounded-lg transition-colors self-start sm:self-auto"
+          className="min-h-11 flex items-center gap-2 px-3 py-2 bg-surface-elevated hover:bg-border-subtle text-editorial-secondary hover:text-editorial-ivory text-xs rounded-lg transition-colors self-start sm:self-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson"
+          aria-label="تحديث بلاغات التعليقات"
         >
           <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin text-crimson' : ''}`} />
           <span>تحديث البلاغات</span>
@@ -100,6 +105,20 @@ export const AdminCommentsView: React.FC<AdminCommentsViewProps> = ({ onNotice }
         <div className="py-20 flex justify-center">
           <Loader2 className="w-8 h-8 animate-spin text-crimson" />
         </div>
+      ) : loadError ? (
+        <div className="p-10 bg-surface border border-amber-700/50 rounded-xl text-center space-y-3" role="alert">
+          <AlertTriangle className="w-8 h-8 mx-auto text-amber-300" aria-hidden="true" />
+          <h3 className="text-sm font-bold text-amber-100">تعذر تحميل البلاغات</h3>
+          <p className="text-xs text-editorial-muted">{loadError}</p>
+          <button
+            type="button"
+            onClick={fetchReports}
+            className="min-h-11 px-4 rounded-lg bg-surface-elevated hover:bg-border-subtle border border-border-subtle text-editorial-ivory text-xs font-bold inline-flex items-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson"
+          >
+            <RefreshCw className="w-3.5 h-3.5" aria-hidden="true" />
+            إعادة المحاولة
+          </button>
+        </div>
       ) : reports.length === 0 ? (
         <div className="p-12 bg-surface border border-border-subtle rounded-xl text-center space-y-3">
           <div className="w-12 h-12 rounded-full bg-emerald-950/40 text-emerald-400 flex items-center justify-center mx-auto">
@@ -107,7 +126,7 @@ export const AdminCommentsView: React.FC<AdminCommentsViewProps> = ({ onNotice }
           </div>
           <h3 className="text-sm font-bold text-editorial-ivory">لا توجد بلاغات معلقة حالياً</h3>
           <p className="text-xs text-editorial-muted max-w-sm mx-auto">
-            جميع تعليقات المنصة متوافقة مع إرشادات المجتمع ولا توجد أي شكاوى معلقة بحاجة لاتخاذ إجراء.
+            لا توجد بلاغات معلقة تحتاج إلى إجراء.
           </p>
         </div>
       ) : (
@@ -135,7 +154,7 @@ export const AdminCommentsView: React.FC<AdminCommentsViewProps> = ({ onNotice }
                     </div>
                   </div>
 
-                  <span className="bg-crimson-subtle border border-crimson/30 text-crimson px-2.5 py-1 rounded text-xs font-bold flex items-center gap-1.5">
+                  <span className="bg-crimson-subtle border border-crimson/30 text-[#E85A65] px-2.5 py-1 rounded text-xs font-bold flex items-center gap-1.5">
                     <AlertTriangle className="w-3.5 h-3.5" />
                     سبب البلاغ: {report.reason}
                   </span>
@@ -156,7 +175,7 @@ export const AdminCommentsView: React.FC<AdminCommentsViewProps> = ({ onNotice }
                     type="button"
                     disabled={actionLoadingId === report._id}
                     onClick={() => handleReportAction(report._id, 'REMOVE_COMMENT')}
-                    className="min-h-11 px-4 py-2 bg-crimson hover:bg-crimson-bright text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 disabled:opacity-50"
+                    className="min-h-11 px-4 py-2 bg-crimson hover:bg-crimson-bright text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson"
                   >
                     {actionLoadingId === report._id ? (
                       <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -170,7 +189,7 @@ export const AdminCommentsView: React.FC<AdminCommentsViewProps> = ({ onNotice }
                     type="button"
                     disabled={actionLoadingId === report._id}
                     onClick={() => handleReportAction(report._id, 'DISMISS')}
-                    className="min-h-11 px-4 py-2 bg-surface-elevated hover:bg-border-subtle text-editorial-secondary hover:text-editorial-ivory text-xs rounded-lg transition-colors flex items-center gap-1.5 disabled:opacity-50"
+                    className="min-h-11 px-4 py-2 bg-surface-elevated hover:bg-border-subtle text-editorial-secondary hover:text-editorial-ivory text-xs rounded-lg transition-colors flex items-center gap-1.5 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson"
                   >
                     <EyeOff className="w-3.5 h-3.5" />
                     <span>تجاهل البلاغ</span>

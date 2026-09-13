@@ -13,8 +13,11 @@ const CONTENT_ROLES = ['SUPER_ADMIN', 'ADMIN', 'CONTENT_EDITOR'];
 export async function POST(req: Request) {
   try {
     const admin = await getCurrentAdmin();
-    if (!admin || !CONTENT_ROLES.includes(admin.role)) {
-      return NextResponse.json({ error: 'غير مصرح لك بتأكيد وسائط المحتوى' }, { status: 401 });
+    if (!admin) {
+      return NextResponse.json({ error: 'غير مصرح لك — يرجى تسجيل الدخول كمسؤول' }, { status: 401 });
+    }
+    if (!CONTENT_ROLES.includes(admin.role)) {
+      return NextResponse.json({ error: 'ليس لديك صلاحية تأكيد وسائط المحتوى' }, { status: 403 });
     }
 
     let body: unknown;

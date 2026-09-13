@@ -52,7 +52,7 @@ interface ConfirmState {
 
 const AUDIO_BADGE_STYLES: Record<AudioStatus, string> = {
   MISSING: 'bg-red-950/40 text-red-300',
-  PROTECTED: 'bg-crimson-subtle text-crimson',
+  PROTECTED: 'bg-crimson-subtle text-[#E85A65]',
   PUBLIC: 'bg-surface border border-border-strong text-editorial-secondary',
 };
 
@@ -262,7 +262,7 @@ export const AdminCmsWorkspace: React.FC<AdminCmsWorkspaceProps> = ({ seriesList
             إدارة الكتالوج
           </h3>
           <p className="text-xs text-editorial-muted mt-1">
-            إنشاء وتحرير المسلسلات والمواسم والحلقات والنصوص المتزامنة ورفع ملفات الصوت
+            أنشئ العمل ثم أضف مواسمه وحلقاته وصوته
           </p>
         </div>
         <button
@@ -281,8 +281,7 @@ export const AdminCmsWorkspace: React.FC<AdminCmsWorkspaceProps> = ({ seriesList
         <div className="p-8 bg-surface border border-border-subtle rounded-lg text-center space-y-3">
           <p className="text-sm text-editorial-ivory font-semibold">لا توجد مسلسلات في قاعدة البيانات</p>
           <p className="text-xs text-editorial-muted">
-            ابدأ بإنشاء مسلسل جديد من الزر أعلاه، أو شغّل <code className="text-crimson font-mono">npm run seed</code> لملء
-            قاعدة البيانات بالأعمال الافتتاحية.
+            ابدأ بإنشاء مسلسل جديد من الزر أعلاه.
           </p>
         </div>
       ) : (
@@ -300,13 +299,13 @@ export const AdminCmsWorkspace: React.FC<AdminCmsWorkspaceProps> = ({ seriesList
                       </span>
                       <span
                         className={`px-2 py-0.5 text-[10px] rounded font-semibold ${
-                          isPublished ? 'bg-crimson-subtle text-crimson' : 'bg-surface-elevated text-editorial-muted border border-border-subtle'
+                          isPublished ? 'bg-crimson-subtle text-[#E85A65]' : 'bg-surface-elevated text-editorial-muted border border-border-subtle'
                         }`}
                       >
                         {isPublished ? 'منشور' : 'غير منشور'}
                       </span>
                       {series.featured && (
-                        <span className="px-2 py-0.5 bg-crimson-subtle text-crimson text-[10px] rounded font-semibold">مُبرَز</span>
+                        <span className="px-2 py-0.5 bg-crimson-subtle text-[#E85A65] text-[10px] rounded font-semibold">مُبرَز</span>
                       )}
                     </div>
                     <p className="text-xs text-editorial-secondary mt-1">{series.hook}</p>

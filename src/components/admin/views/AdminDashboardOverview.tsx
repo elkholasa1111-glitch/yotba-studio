@@ -7,11 +7,8 @@ import {
   Radio,
   Users,
   TrendingUp,
-  DollarSign,
   Activity,
   CheckCircle2,
-  Clock,
-  ShieldCheck,
 } from 'lucide-react';
 import type { AdminSeriesDTO } from '../cms/shared';
 
@@ -98,7 +95,7 @@ export const AdminDashboardOverview: React.FC<Props> = ({
   return (
     <div className="space-y-6">
       {/* 1. بطاقات المؤشرات الرئيسية (KPI Cards) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         {kpis.map((kpi) => {
           const Icon = kpi.icon;
           return (
@@ -106,16 +103,16 @@ export const AdminDashboardOverview: React.FC<Props> = ({
               type="button"
               key={kpi.label}
               onClick={kpi.action}
-              className="p-5 rounded-2xl bg-surface border border-border-subtle hover:border-border-strong text-right transition-all hover:scale-[1.01] flex items-center justify-between group cursor-pointer shadow-sm"
+              className="min-h-24 sm:min-h-28 p-3.5 sm:p-5 rounded-2xl bg-surface border border-border-subtle hover:border-border-strong text-right transition-all hover:scale-[1.01] flex items-center justify-between group cursor-pointer shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson"
             >
-              <div className="space-y-1">
-                <span className="text-xs text-editorial-muted font-medium">{kpi.label}</span>
-                <p className="text-2xl sm:text-3xl font-black font-display text-editorial-ivory">
+              <div className="space-y-1 min-w-0">
+                <span className="text-[11px] sm:text-xs text-editorial-muted font-medium truncate block">{kpi.label}</span>
+                <p className="text-xl sm:text-3xl font-black font-display text-editorial-ivory truncate">
                   {kpi.value}
                 </p>
               </div>
-              <div className={`w-12 h-12 rounded-xl border flex items-center justify-center ${kpi.bg}`}>
-                <Icon size={22} className={kpi.color} />
+              <div className={`w-10 h-10 sm:w-12 sm:h-12 rounded-xl border flex items-center justify-center shrink-0 ${kpi.bg}`}>
+                <Icon size={20} className={kpi.color} />
               </div>
             </button>
           );
@@ -125,13 +122,13 @@ export const AdminDashboardOverview: React.FC<Props> = ({
       {/* 2. قمع التحويل وأحدث النشاطات */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* قمع الاستماع والاشتراكات */}
-        <div className="lg:col-span-6 p-6 rounded-2xl bg-surface border border-border-subtle space-y-4">
+        <div className="lg:col-span-6 p-5 sm:p-6 rounded-2xl bg-surface border border-border-subtle space-y-4">
           <div className="flex items-center justify-between border-b border-border-subtle pb-3">
             <h3 className="text-sm font-bold text-editorial-ivory flex items-center gap-2">
               <TrendingUp size={16} className="text-crimson" />
-              <span>قمع الاستماع والتحويل (Conversion Funnel)</span>
+              <span>قمع التحويل والاشتراك</span>
             </h3>
-            <span className="text-xs text-editorial-muted">آخر 30 يوماً</span>
+            <span className="text-xs text-editorial-muted">آخر 30 يوم</span>
           </div>
 
           <div className="space-y-3 pt-2">
@@ -146,7 +143,12 @@ export const AdminDashboardOverview: React.FC<Props> = ({
                   </div>
                   <div className="h-2 w-full rounded-full bg-surface-elevated overflow-hidden">
                     <div
-                      className="h-full bg-gradient-to-r from-crimson to-amber-500 rounded-full transition-all duration-500"
+                      role="progressbar"
+                      aria-label={step.stage}
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-valuenow={Math.max(0, Math.min(100, step.percent))}
+                      className="h-full bg-gradient-to-l from-crimson to-amber-500 rounded-full transition-all duration-500"
                       style={{ width: `${Math.max(4, step.percent)}%` }}
                     />
                   </div>
@@ -154,7 +156,7 @@ export const AdminDashboardOverview: React.FC<Props> = ({
               ))
             ) : (
               <p className="text-xs text-editorial-muted py-6 text-center">
-                يتم تجميع بيانات القمع تلقائياً عند تفاعل المستمعين مع الحلقات
+                تظهر البيانات تلقائياً مع تفاعل المستمعين
               </p>
             )}
           </div>
@@ -165,9 +167,9 @@ export const AdminDashboardOverview: React.FC<Props> = ({
           <div className="flex items-center justify-between border-b border-border-subtle pb-3">
             <h3 className="text-sm font-bold text-editorial-ivory flex items-center gap-2">
               <Activity size={16} className="text-crimson" />
-              <span>أحدث إجراءات الإشراف والتدقيق</span>
+              <span>أحدث الإجراءات</span>
             </h3>
-            <span className="text-xs text-editorial-muted">حماية وتتبع العمليات</span>
+            <span className="text-xs text-editorial-muted">آخر 8 عمليات</span>
           </div>
 
           <div className="space-y-2 max-h-72 overflow-y-auto scrollbar-thin scrollbar-thumb-border-subtle">
@@ -175,13 +177,13 @@ export const AdminDashboardOverview: React.FC<Props> = ({
               auditLogs.slice(0, 8).map((log) => (
                 <div
                   key={log._id}
-                  className="p-2.5 rounded-xl bg-surface-elevated/50 border border-border-subtle/50 flex items-center justify-between text-xs"
+                  className="p-2.5 rounded-xl bg-surface-elevated/50 border border-border-subtle/50 flex items-center justify-between gap-2 text-xs"
                 >
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
                     <CheckCircle2 size={14} className="text-emerald-400 shrink-0" />
-                    <div>
-                      <span className="font-bold text-editorial-ivory block">{log.action}</span>
-                      <span className="text-[11px] text-editorial-muted">
+                    <div className="min-w-0">
+                      <span className="font-bold text-editorial-ivory block truncate">{log.action}</span>
+                      <span className="text-[11px] text-editorial-muted block truncate">
                         {log.actor?.email || 'النظام'} • {log.targetEntity}
                       </span>
                     </div>

@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
   LayoutDashboard,
   Film,
@@ -21,9 +22,8 @@ import {
   X,
   ChevronLeft,
   Loader2,
+  RefreshCw,
   KeyRound,
-  ArrowRight,
-  Sparkles,
   LogOut,
 } from 'lucide-react';
 
@@ -40,6 +40,7 @@ import { UsersPanel } from './operations/UsersPanel';
 import { EntitlementsPanel } from './operations/EntitlementsPanel';
 import { HomepagePanel } from './operations/HomepagePanel';
 import { AdminUserDTO } from './operations/types';
+import { resolvePublicPlatformUrl } from '@/lib/config/public-platform';
 
 export type AdminSection =
   | 'dashboard'
@@ -95,33 +96,34 @@ interface NavGroup {
 
 const NAV_GROUPS: NavGroup[] = [
   {
-    title: 'مسار الإنتاج والمحتوى',
+    title: 'المحتوى',
     items: [
-      { id: 'series', label: 'المسلسلات (استوديو العمل)', icon: Film },
-      { id: 'seasons', label: 'المواسم والتسعير', icon: Layers },
-      { id: 'episodes', label: 'الحلقات والصوتيات', icon: Radio },
-      { id: 'transcripts', label: 'النصوص المتزامنة', icon: Subtitles },
-      { id: 'media', label: 'مستودع الوسائط (R2)', icon: FolderUp },
+      { id: 'series', label: 'المسلسلات', icon: Film },
+      { id: 'seasons', label: 'المواسم', icon: Layers },
+      { id: 'episodes', label: 'الحلقات والصوت', icon: Radio },
+      { id: 'transcripts', label: 'النصوص', icon: Subtitles },
+      { id: 'media', label: 'الوسائط', icon: FolderUp },
     ],
   },
   {
-    title: 'المجتمع والعمليات',
+    title: 'التشغيل',
     items: [
-      { id: 'users', label: 'المستخدمون والاستحقاقات', icon: Users },
-      { id: 'comments', label: 'إشراف التعليقات', icon: MessageSquare },
-      { id: 'homepage', label: 'أقسام الواجهة الرئيسية', icon: LayoutGrid },
+      { id: 'users', label: 'المستخدمون', icon: Users },
+      { id: 'comments', label: 'التعليقات', icon: MessageSquare },
+      { id: 'homepage', label: 'الصفحة الرئيسية', icon: LayoutGrid },
     ],
   },
   {
-    title: 'المنظومة والنظام',
+    title: 'النظام',
     items: [
-      { id: 'dashboard', label: 'لوحة القيادة والتحليلات', icon: LayoutDashboard },
-      { id: 'settings', label: 'الأسعار والبنية التحتية', icon: Settings },
+      { id: 'dashboard', label: 'نظرة عامة', icon: LayoutDashboard },
+      { id: 'settings', label: 'الإعدادات', icon: Settings },
     ],
   },
 ];
 
 export const AdminDashboardView: React.FC = () => {
+  const router = useRouter();
   const [activeSection, setActiveSection] = useState<AdminSection>('series');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
@@ -131,6 +133,8 @@ export const AdminDashboardView: React.FC = () => {
   const [funnel, setFunnel] = useState<FunnelStep[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLogItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [dataError, setDataError] = useState<string | null>(null);
 
   // Selection state for cross-navigation (Flow: Series -> Seasons -> Episodes -> Transcripts)
   const [navSeriesId, setNavSeriesId] = useState<string | null>(null);
@@ -147,21 +151,110 @@ export const AdminDashboardView: React.FC = () => {
     setTimeout(() => setNotice(null), 4000);
   }, []);
 
+  useEffect(() => {
+    if (!isMobileMenuOpen) return;
+
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    const drawer = document.getElementById('admin-mobile-navigation');
+    const focusableSelector =
+      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+    const focusable = drawer
+      ? Array.from(drawer.querySelectorAll<HTMLElement>(focusableSelector))
+      : [];
+    const focusTimer = window.setTimeout(() => focusable[0]?.focus(), 0);
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setIsMobileMenuOpen(false);
+        return;
+      }
+      if (event.key === 'Tab' && focusable.length > 0) {
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        }
+      }
+    };
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      window.clearTimeout(focusTimer);
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', handleKeyDown);
+      previouslyFocused?.focus?.();
+    };
+  }, [isMobileMenuOpen]);
+
   // Fetch initial admin data
   const fetchData = useCallback(async () => {
+    setIsRefreshing(true);
+    setDataError(null);
+
+    const readJson = async (url: string): Promise<{
+      ok: boolean;
+      data: Record<string, unknown> | null;
+    }> => {
+      try {
+        const response = await fetch(url, { cache: 'no-store' });
+        const payload = await response.json().catch(() => null);
+        return {
+          ok: response.ok,
+          data:
+            payload && typeof payload === 'object' && !Array.isArray(payload)
+              ? (payload as Record<string, unknown>)
+              : null,
+        };
+      } catch {
+        return { ok: false, data: null };
+      }
+    };
+
     try {
       const [contentRes, analyticsRes, auditRes] = await Promise.all([
-        fetch('/api/v1/admin/content', { cache: 'no-store' }).then((r) => r.json()).catch(() => null),
-        fetch('/api/v1/admin/analytics', { cache: 'no-store' }).then((r) => r.json()).catch(() => null),
-        fetch('/api/v1/admin/audit-log?limit=50', { cache: 'no-store' }).then((r) => r.json()).catch(() => null),
+        readJson('/api/v1/admin/content'),
+        readJson('/api/v1/admin/analytics'),
+        readJson('/api/v1/admin/audit-log?limit=50'),
       ]);
 
-      if (contentRes?.series) setSeriesList(contentRes.series);
-      if (analyticsRes?.totals) setTotals(analyticsRes.totals);
-      if (analyticsRes?.funnel) setFunnel(analyticsRes.funnel);
-      if (auditRes?.logs) setAuditLogs(auditRes.logs);
+      const failedSources: string[] = [];
+
+      if (contentRes.ok && Array.isArray(contentRes.data?.series)) {
+        setSeriesList(contentRes.data.series as AdminSeriesDTO[]);
+      } else {
+        failedSources.push('المحتوى');
+      }
+
+      if (analyticsRes.ok && analyticsRes.data?.totals && Array.isArray(analyticsRes.data.funnel)) {
+        setTotals(analyticsRes.data.totals as unknown as Totals);
+        setFunnel(analyticsRes.data.funnel as unknown as FunnelStep[]);
+      } else {
+        failedSources.push('التحليلات');
+      }
+
+      if (auditRes.ok && Array.isArray(auditRes.data?.logs)) {
+        setAuditLogs(auditRes.data.logs as unknown as AuditLogItem[]);
+      } else {
+        failedSources.push('سجل التدقيق');
+      }
+
+      if (failedSources.length > 0) {
+        setDataError(
+          failedSources.length === 3
+            ? 'تعذر تحميل بيانات لوحة التحكم حالياً. تحقق من الجلسة واتصال الخدمات ثم أعد المحاولة.'
+            : `تعذر تحميل بعض البيانات (${failedSources.join('، ')}). يمكنك إعادة المحاولة دون فقد التعديلات.`
+        );
+      }
     } finally {
       setIsLoading(false);
+      setIsRefreshing(false);
     }
   }, []);
 
@@ -169,34 +262,49 @@ export const AdminDashboardView: React.FC = () => {
     fetchData();
   }, [fetchData]);
 
+  const navigateToSection = useCallback(
+    (section: AdminSection, preserveContext = false) => {
+      setActiveSection(section);
+      if (!preserveContext) {
+        setNavSeriesId(null);
+        setNavSeasonId(null);
+        setNavEpisodeId(null);
+      }
+    },
+    []
+  );
+
   // Seamless navigation handlers
   const handleManageSeasons = (seriesId: string) => {
     setNavSeriesId(seriesId);
-    setActiveSection('seasons');
+    setNavSeasonId(null);
+    setNavEpisodeId(null);
+    navigateToSection('seasons', true);
   };
 
   const handleManageEpisodes = (seriesId: string, seasonId: string) => {
     setNavSeriesId(seriesId);
     setNavSeasonId(seasonId);
-    setActiveSection('episodes');
+    setNavEpisodeId(null);
+    navigateToSection('episodes', true);
   };
 
   const handleManageTranscript = (seriesId: string, seasonId: string, episodeId: string) => {
     setNavSeriesId(seriesId);
     setNavSeasonId(seasonId);
     setNavEpisodeId(episodeId);
-    setActiveSection('transcripts');
+    navigateToSection('transcripts', true);
   };
 
   const handleSelectUserFromUsersList = (user: AdminUserDTO) => {
     setSelectedUserForEntitlements(user);
-    setActiveSection('entitlements');
+    navigateToSection('entitlements');
     showNotice('success', `تم تحديد المستخدم "${user.displayName}" لإدارة استحقاقاته`);
   };
 
   // Active Series helper for Pipeline breadcrumb
   const currentNavSeries = seriesList.find((s) => s._id === navSeriesId);
-  const isContentPipelineSection = ['series', 'seasons', 'episodes', 'transcripts', 'media'].includes(
+  const isContentPipelineSection = ['series', 'seasons', 'episodes', 'transcripts'].includes(
     activeSection
   );
 
@@ -207,22 +315,27 @@ export const AdminDashboardView: React.FC = () => {
         <div className="flex items-center gap-3">
           <button
             type="button"
-            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-            className="lg:hidden p-2 text-editorial-secondary hover:text-editorial-ivory rounded-lg bg-surface-elevated"
+            onClick={() => setIsMobileMenuOpen((open) => !open)}
+            className="lg:hidden min-h-11 min-w-11 p-2 text-editorial-secondary hover:text-editorial-ivory rounded-lg bg-surface-elevated focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson"
             aria-label="القائمة"
+            aria-expanded={isMobileMenuOpen}
+            aria-controls="admin-mobile-navigation"
           >
             {isMobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
           </button>
 
-          <Link href="/" className="flex items-center gap-2">
+          <Link
+            href="/"
+            className="flex items-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson rounded-lg"
+          >
             <span className="w-8 h-8 rounded-lg bg-crimson flex items-center justify-center text-white font-black font-display text-base shadow-halo">
               يـ
             </span>
             <div>
               <h1 className="text-sm font-black font-display text-editorial-ivory leading-tight">
-                يُتبع... <span className="text-crimson font-ui text-[11px] font-bold">إدارة المحتوى</span>
+                يُتبع... <span className="text-crimson font-ui text-[11px] font-bold">الاستوديو</span>
               </h1>
-              <p className="text-[10px] text-editorial-muted">لوحة التحكم والتوزيع المركزية</p>
+              <p className="text-[10px] text-editorial-muted">إدارة المحتوى</p>
             </div>
           </Link>
         </div>
@@ -232,29 +345,31 @@ export const AdminDashboardView: React.FC = () => {
           {notice && (
             <div
               role="status"
-              className={`hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-semibold animate-fade-in ${
+              aria-live="polite"
+              className={`flex max-w-[48vw] sm:max-w-md items-center gap-2 px-2.5 sm:px-3 py-1.5 rounded-lg border text-xs font-semibold animate-fade-in ${
                 notice.type === 'success'
-                  ? 'bg-crimson-subtle border-crimson/40 text-crimson'
+                  ? 'bg-crimson-subtle border-crimson/40 text-[#E85A65]'
                   : 'bg-red-950/50 border-red-800 text-red-300'
               }`}
             >
               {notice.type === 'success' ? (
-                <CheckCircle2 className="w-4 h-4" />
+                <CheckCircle2 className="w-4 h-4 shrink-0" />
               ) : (
-                <AlertCircle className="w-4 h-4" />
+                <AlertCircle className="w-4 h-4 shrink-0" />
               )}
-              <span>{notice.msg}</span>
+              <span className="truncate">{notice.msg}</span>
             </div>
           )}
 
           <Link
-            href="https://yotba.vercel.app"
+            href={resolvePublicPlatformUrl('/')}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-surface-elevated hover:bg-border-subtle text-editorial-secondary hover:text-editorial-ivory text-xs rounded-lg transition-colors border border-border-subtle"
+            aria-label="فتح منصة الاستماع العامة"
+            className="min-h-11 min-w-11 flex items-center justify-center gap-1.5 px-3 py-1.5 bg-surface-elevated hover:bg-border-subtle text-editorial-secondary hover:text-editorial-ivory text-xs rounded-lg transition-colors border border-border-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson"
           >
             <ExternalLink className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">المنصة العامة (yotba.vercel.app)</span>
+            <span className="hidden sm:inline">منصة الاستماع العامة</span>
           </Link>
 
           <button
@@ -263,11 +378,12 @@ export const AdminDashboardView: React.FC = () => {
               try {
                 await fetch('/api/v1/admin/auth/logout', { method: 'POST' });
               } finally {
-                window.location.href = '/login';
+                router.push('/login');
               }
             }}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-red-950/40 hover:bg-red-900/60 text-red-300 hover:text-red-100 text-xs rounded-lg transition-colors border border-red-800/40"
+            className="min-h-11 min-w-11 flex items-center justify-center gap-1.5 px-3 py-1.5 bg-red-950/40 hover:bg-red-900/60 text-red-300 hover:text-red-100 text-xs rounded-lg transition-colors border border-red-800/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400"
             title="تسجيل الخروج من لوحة التحكم"
+            aria-label="تسجيل الخروج"
           >
             <LogOut className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">خروج</span>
@@ -281,7 +397,7 @@ export const AdminDashboardView: React.FC = () => {
         <aside className="w-64 border-l border-border-subtle bg-surface/50 hidden lg:flex flex-col shrink-0 overflow-y-auto">
           <div className="p-4 border-b border-border-subtle/50 flex items-center gap-2 text-xs font-bold text-editorial-muted">
             <Shield className="w-4 h-4 text-crimson" />
-            <span>نظام إدارة المحتوى CMS</span>
+            <span>إدارة المحتوى</span>
           </div>
 
           <div className="p-3 space-y-6">
@@ -301,8 +417,9 @@ export const AdminDashboardView: React.FC = () => {
                       <button
                         key={item.id}
                         type="button"
-                        onClick={() => setActiveSection(item.id)}
-                        className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all text-right ${
+                        onClick={() => navigateToSection(item.id)}
+                        aria-current={isActive ? 'page' : undefined}
+                        className={`w-full min-h-10 flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all text-right focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson ${
                           isActive
                             ? 'bg-crimson text-white shadow-halo font-bold'
                             : 'text-editorial-secondary hover:text-editorial-ivory hover:bg-surface-elevated'
@@ -326,14 +443,23 @@ export const AdminDashboardView: React.FC = () => {
 
         {/* Mobile Navigation Drawer */}
         {isMobileMenuOpen && (
-          <div className="lg:hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex">
-            <div className="w-4/5 max-w-xs bg-surface border-l border-border-subtle h-full flex flex-col p-4 space-y-4 overflow-y-auto animate-fade-in text-right">
+          <div className="lg:hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex" role="presentation">
+            <div
+              id="admin-mobile-navigation"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="admin-mobile-navigation-title"
+              className="w-4/5 max-w-xs bg-surface border-l border-border-subtle h-full flex flex-col p-4 space-y-4 overflow-y-auto animate-fade-in text-right"
+            >
               <div className="flex items-center justify-between border-b border-border-subtle pb-3">
-                <span className="text-xs font-bold text-editorial-ivory">أقسام لوحة التحكم</span>
+                <span id="admin-mobile-navigation-title" className="text-xs font-bold text-editorial-ivory">
+                  أقسام لوحة التحكم
+                </span>
                 <button
                   type="button"
                   onClick={() => setIsMobileMenuOpen(false)}
-                  className="p-1 text-editorial-muted hover:text-editorial-ivory"
+                  className="min-h-11 min-w-11 p-1 text-editorial-muted hover:text-editorial-ivory rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson"
+                  aria-label="إغلاق القائمة"
                 >
                   <X className="w-5 h-5" />
                 </button>
@@ -357,10 +483,11 @@ export const AdminDashboardView: React.FC = () => {
                             key={item.id}
                             type="button"
                             onClick={() => {
-                              setActiveSection(item.id);
+                              navigateToSection(item.id);
                               setIsMobileMenuOpen(false);
                             }}
-                            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs font-semibold text-right ${
+                            aria-current={isActive ? 'page' : undefined}
+                            className={`w-full min-h-11 flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs font-semibold text-right focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson ${
                               isActive
                                 ? 'bg-crimson text-white font-bold'
                                 : 'text-editorial-secondary hover:text-editorial-ivory hover:bg-surface-elevated'
@@ -376,7 +503,12 @@ export const AdminDashboardView: React.FC = () => {
                 ))}
               </div>
             </div>
-            <div className="flex-1" onClick={() => setIsMobileMenuOpen(false)} />
+            <button
+              type="button"
+              className="flex-1 cursor-default"
+              onClick={() => setIsMobileMenuOpen(false)}
+              aria-label="إغلاق القائمة"
+            />
           </div>
         )}
 
@@ -387,32 +519,35 @@ export const AdminDashboardView: React.FC = () => {
             {isContentPipelineSection && (
               <div className="bg-surface/60 border border-border-subtle rounded-xl p-3.5 flex flex-col md:flex-row items-start md:items-center justify-between gap-3 text-xs">
                 <div className="flex items-center gap-2 text-editorial-muted">
-                  <span className="font-bold text-editorial-ivory">مسار النشر المتسلسل:</span>
+                  <span className="font-bold text-editorial-ivory">مسار النشر</span>
                   {currentNavSeries && (
-                    <span className="bg-crimson/15 text-crimson px-2 py-0.5 rounded font-bold">
+                    <span
+                      className="bg-crimson/15 text-crimson px-2 py-0.5 rounded font-bold truncate max-w-[160px] sm:max-w-xs"
+                      title={currentNavSeries.title}
+                    >
                       {currentNavSeries.title}
                     </span>
                   )}
                 </div>
 
                 {/* Pipeline Steps Buttons */}
-                <div className="flex items-center gap-1 overflow-x-auto w-full md:w-auto pb-1 md:pb-0">
+                <div className="flex items-center gap-1.5 overflow-x-auto w-full md:w-auto pb-1 md:pb-0">
                   <button
                     type="button"
-                    onClick={() => setActiveSection('series')}
-                    className={`px-2.5 py-1 rounded-lg transition-colors whitespace-nowrap ${
+                    onClick={() => navigateToSection('series')}
+                    className={`min-h-11 px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson ${
                       activeSection === 'series'
                         ? 'bg-crimson text-white font-bold'
                         : 'bg-surface-elevated text-editorial-secondary hover:text-editorial-ivory'
                     }`}
                   >
-                    1. المسلسل والبوسترات
+                    1. المسلسلات
                   </button>
-                  <span className="text-editorial-muted">➔</span>
+                  <ChevronLeft className="w-3.5 h-3.5 text-editorial-muted shrink-0" aria-hidden="true" />
                   <button
                     type="button"
-                    onClick={() => setActiveSection('seasons')}
-                    className={`px-2.5 py-1 rounded-lg transition-colors whitespace-nowrap ${
+                    onClick={() => navigateToSection('seasons', true)}
+                    className={`min-h-11 px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson ${
                       activeSection === 'seasons'
                         ? 'bg-crimson text-white font-bold'
                         : 'bg-surface-elevated text-editorial-secondary hover:text-editorial-ivory'
@@ -420,31 +555,55 @@ export const AdminDashboardView: React.FC = () => {
                   >
                     2. المواسم
                   </button>
-                  <span className="text-editorial-muted">➔</span>
+                  <ChevronLeft className="w-3.5 h-3.5 text-editorial-muted shrink-0" aria-hidden="true" />
                   <button
                     type="button"
-                    onClick={() => setActiveSection('episodes')}
-                    className={`px-2.5 py-1 rounded-lg transition-colors whitespace-nowrap ${
+                    onClick={() => navigateToSection('episodes', true)}
+                    className={`min-h-11 px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson ${
                       activeSection === 'episodes'
                         ? 'bg-crimson text-white font-bold'
                         : 'bg-surface-elevated text-editorial-secondary hover:text-editorial-ivory'
                     }`}
                   >
-                    3. الحلقات والصوتيات
+                    3. الحلقات
                   </button>
-                  <span className="text-editorial-muted">➔</span>
+                  <ChevronLeft className="w-3.5 h-3.5 text-editorial-muted shrink-0" aria-hidden="true" />
                   <button
                     type="button"
-                    onClick={() => setActiveSection('transcripts')}
-                    className={`px-2.5 py-1 rounded-lg transition-colors whitespace-nowrap ${
+                    onClick={() => navigateToSection('transcripts', true)}
+                    className={`min-h-11 px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson ${
                       activeSection === 'transcripts'
                         ? 'bg-crimson text-white font-bold'
                         : 'bg-surface-elevated text-editorial-secondary hover:text-editorial-ivory'
                     }`}
                   >
-                    4. النصوص المتزامنة
+                    4. النصوص
                   </button>
                 </div>
+              </div>
+            )}
+
+            {dataError && !isLoading && (
+              <div
+                role="alert"
+                className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-amber-700/50 bg-amber-950/30 p-4 text-xs text-amber-100"
+              >
+                <div className="flex items-start gap-2.5">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-amber-300 mt-0.5" aria-hidden="true" />
+                  <div className="space-y-0.5">
+                    <p className="font-bold">البيانات غير مكتملة</p>
+                    <p className="text-amber-200/80">{dataError}</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={fetchData}
+                  disabled={isRefreshing}
+                  className="min-h-11 px-3 rounded-lg border border-amber-600/50 bg-amber-950/40 hover:bg-amber-900/50 text-amber-100 font-semibold inline-flex items-center justify-center gap-1.5 disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} aria-hidden="true" />
+                  <span>{isRefreshing ? 'جارٍ التحديث...' : 'إعادة المحاولة'}</span>
+                </button>
               </div>
             )}
 
@@ -462,7 +621,7 @@ export const AdminDashboardView: React.FC = () => {
                     totals={totals}
                     funnel={funnel}
                     auditLogs={auditLogs}
-                    onNavigate={(sec) => setActiveSection(sec as AdminSection)}
+                    onNavigate={(sec) => navigateToSection(sec as AdminSection)}
                   />
                 )}
 
@@ -539,8 +698,8 @@ export const AdminDashboardView: React.FC = () => {
                       </div>
                       <button
                         type="button"
-                        onClick={() => setActiveSection('users')}
-                        className="text-xs text-editorial-secondary hover:text-editorial-ivory underline"
+                        onClick={() => navigateToSection('users')}
+                        className="min-h-11 px-2 text-xs text-editorial-secondary hover:text-editorial-ivory underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson rounded flex items-center"
                       >
                         العودة لقائمة المستخدمين
                       </button>
@@ -559,12 +718,12 @@ export const AdminDashboardView: React.FC = () => {
                 {activeSection === 'homepage' && (
                   <div className="space-y-6">
                     <div className="border-b border-border-subtle pb-4">
-                      <h2 className="text-xl font-black font-display text-editorial-ivory flex items-center gap-2">
-                        <LayoutGrid className="w-5 h-5 text-crimson" />
-                        أقسام الصفحة الرئيسية
-                      </h2>
-                      <p className="text-xs text-editorial-secondary mt-1">
-                        ترتيب وجدولة أقسام الواجهة الرئيسية وضبط قواعد التغذية الذكية
+                        <h2 className="text-xl font-black font-display text-editorial-ivory flex items-center gap-2">
+                          <LayoutGrid className="w-5 h-5 text-crimson" />
+                          الصفحة الرئيسية
+                        </h2>
+                        <p className="text-xs text-editorial-secondary mt-1">
+                          رتّب الأقسام واختر محتوى كل قسم.
                       </p>
                     </div>
                     <HomepagePanel onNotice={showNotice} />

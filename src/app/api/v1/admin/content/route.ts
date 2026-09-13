@@ -9,12 +9,22 @@ import { NextResponse } from 'next/server';
 import { isValidObjectId, Types } from 'mongoose';
 import { getCurrentAdmin } from '@/lib/auth';
 import { connectDB } from '@/lib/db/connect';
-import { Series, Season, Episode, Transcript, AdminAuditLog, Purchase, Entitlement } from '@/lib/db/models';
+import {
+  Series,
+  Season,
+  Episode,
+  Transcript,
+  AdminAuditLog,
+  Purchase,
+  Entitlement,
+  ShareAsset,
+  HomepageSection,
+} from '@/lib/db/models';
 import {
   jsonOk,
   jsonError,
   slugify,
-  isSafeHttpUrl,
+  isSafeMediaUrl,
   containsHtml,
   stripControlChars,
   isPlainObject,
@@ -24,7 +34,17 @@ import {
   parseStringArray,
   writeAudit,
   diffFields,
+  cleanupContentMedia,
+  collectMediaKeysFromRecord,
+  mergeMediaKeys,
+  collectReplacedSeriesMediaKeys,
+  collectReplacedEpisodeMediaKeys,
+  buildSeriesMediaUpdates,
+  buildEpisodeMediaUpdates,
+  type StorageCleanupReport,
 } from '@/lib/admin/content-api';
+import { extractStorageKey, StorageService, validateUploadFinalizeInput } from '@/lib/storage';
+import { getPublicPlatformOrigin, mediaUrlFromStorageKey, normalizeMediaUrl } from '@/lib/media/urls';
 
 const CONTENT_ROLES = ['SUPER_ADMIN', 'ADMIN', 'CONTENT_EDITOR'];
 const CONTENT_RATINGS = ['GENERAL', 'PG13', 'PG16', 'PG18'];
@@ -191,8 +211,8 @@ export async function GET(req: Request) {
       _id: s._id.toString(),
       title: s.title,
       slug: s.slug,
-      posterUrl: s.posterUrl,
-      heroArtworkUrl: s.heroArtworkUrl,
+      posterUrl: mediaUrlFromStorageKey(normalizeMediaUrl(s.posterUrl), getPublicPlatformOrigin()),
+      heroArtworkUrl: mediaUrlFromStorageKey(normalizeMediaUrl(s.heroArtworkUrl), getPublicPlatformOrigin()),
       hook: s.hook,
       description: s.description,
       genres: Array.isArray(s.genres) ? s.genres : [],
@@ -277,10 +297,10 @@ export async function POST(req: Request) {
       const description = stripControlChars(body.description).trim();
       if (containsHtml(description)) return jsonError('الوصف يجب ألا يحتوي وسوم HTML');
 
-      if (!isNonEmptyString(body.posterUrl, 1, MAX_URL) || !isSafeHttpUrl(body.posterUrl.trim())) {
+      if (!isNonEmptyString(body.posterUrl, 1, MAX_URL) || !isSafeMediaUrl(body.posterUrl.trim())) {
         return jsonError('رابط صورة الغلاف مطلوب ويجب أن يكون رابطاً صالحاً');
       }
-      if (!isNonEmptyString(body.heroArtworkUrl, 1, MAX_URL) || !isSafeHttpUrl(body.heroArtworkUrl.trim())) {
+      if (!isNonEmptyString(body.heroArtworkUrl, 1, MAX_URL) || !isSafeMediaUrl(body.heroArtworkUrl.trim())) {
         return jsonError('رابط صورة الواجهة مطلوب ويجب أن يكون رابطاً صالحاً');
       }
 
@@ -301,7 +321,7 @@ export async function POST(req: Request) {
       if (!isBoundedInt(freeEpisodesCount, 0, 10)) return jsonError('عدد الحلقات المجانية يجب أن يكون بين 0 و 10');
 
       if (body.shareVideoUrl !== undefined && body.shareVideoUrl !== null && body.shareVideoUrl !== '') {
-        if (typeof body.shareVideoUrl !== 'string' || !isSafeHttpUrl(body.shareVideoUrl.trim())) {
+        if (typeof body.shareVideoUrl !== 'string' || !isSafeMediaUrl(body.shareVideoUrl.trim())) {
           return jsonError('رابط فيديو المشاركة غير صالح');
         }
       }
@@ -315,8 +335,8 @@ export async function POST(req: Request) {
       const series = await Series.create({
         title,
         slug,
-        posterUrl: body.posterUrl.trim(),
-        heroArtworkUrl: body.heroArtworkUrl.trim(),
+        posterUrl: mediaUrlFromStorageKey(normalizeMediaUrl(body.posterUrl.trim()), getPublicPlatformOrigin()),
+        heroArtworkUrl: mediaUrlFromStorageKey(normalizeMediaUrl(body.heroArtworkUrl.trim()), getPublicPlatformOrigin()),
         hook,
         description,
         genres,
@@ -427,7 +447,7 @@ export async function POST(req: Request) {
       }
 
       if (body.artworkOverride !== undefined && body.artworkOverride !== null && body.artworkOverride !== '') {
-        if (typeof body.artworkOverride !== 'string' || !isSafeHttpUrl(body.artworkOverride.trim())) {
+        if (typeof body.artworkOverride !== 'string' || !isSafeMediaUrl(body.artworkOverride.trim())) {
           return jsonError('رابط صورة الحلقة غير صالح');
         }
       }
@@ -444,6 +464,27 @@ export async function POST(req: Request) {
       const freeCount = Number((parentSeries as any)?.freeEpisodesCount || 0);
       const isFree = body.isFree === true || body.episodeNumber <= freeCount;
 
+      let audioStorageKey: string | undefined;
+      if (body.audioStorageKey !== undefined && body.audioStorageKey !== null && body.audioStorageKey !== '' && typeof body.audioStorageKey !== 'string') {
+        return jsonError('معرف التخزين الصوتي غير صالح');
+      }
+      if (typeof body.audioStorageKey === 'string' && body.audioStorageKey.trim()) {
+        const storageValidation = validateUploadFinalizeInput({
+          storageKey: body.audioStorageKey,
+          category: 'audio',
+        });
+        if (!storageValidation.ok) return jsonError(storageValidation.error, storageValidation.status);
+        audioStorageKey = storageValidation.data.storageKey;
+      }
+      let audioPublicUrl: string | undefined;
+      if (body.audioPublicUrl !== undefined && body.audioPublicUrl !== null && body.audioPublicUrl !== '' && typeof body.audioPublicUrl !== 'string') {
+        return jsonError('رابط الصوت العام غير صالح');
+      }
+      if (!audioStorageKey && typeof body.audioPublicUrl === 'string' && body.audioPublicUrl.trim()) {
+        if (!isSafeMediaUrl(body.audioPublicUrl.trim())) return jsonError('رابط الصوت العام غير صالح');
+        audioPublicUrl = body.audioPublicUrl.trim();
+      }
+
       const episode = await Episode.create({
         seriesId: season.seriesId,
         seasonId: season._id,
@@ -455,13 +496,8 @@ export async function POST(req: Request) {
         isFree,
         publishDate,
         artworkOverride: typeof body.artworkOverride === 'string' && body.artworkOverride.trim() ? body.artworkOverride.trim() : undefined,
-        audioStorageKey: typeof body.audioStorageKey === 'string' && body.audioStorageKey.trim() ? body.audioStorageKey.trim() : undefined,
-        audioPublicUrl:
-          typeof body.audioStorageKey === 'string' && body.audioStorageKey.trim()
-            ? undefined
-            : typeof body.audioPublicUrl === 'string' && body.audioPublicUrl.trim()
-            ? body.audioPublicUrl.trim()
-            : undefined,
+        audioStorageKey,
+        audioPublicUrl,
       });
       await syncSeasonEpisodesCount(season._id.toString());
       await syncSeriesCounters(season.seriesId.toString());
@@ -575,19 +611,19 @@ export async function PATCH(req: Request) {
       }
 
       if (body.posterUrl !== undefined) {
-        if (typeof body.posterUrl !== 'string' || !isSafeHttpUrl(body.posterUrl.trim())) return jsonError('رابط صورة الغلاف غير صالح');
-        updates.posterUrl = body.posterUrl.trim();
+        if (typeof body.posterUrl !== 'string' || !isSafeMediaUrl(body.posterUrl.trim())) return jsonError('رابط صورة الغلاف غير صالح');
+        updates.posterUrl = mediaUrlFromStorageKey(normalizeMediaUrl(body.posterUrl.trim()), getPublicPlatformOrigin());
       }
 
       if (body.heroArtworkUrl !== undefined) {
-        if (typeof body.heroArtworkUrl !== 'string' || !isSafeHttpUrl(body.heroArtworkUrl.trim())) return jsonError('رابط صورة الواجهة غير صالح');
-        updates.heroArtworkUrl = body.heroArtworkUrl.trim();
+        if (typeof body.heroArtworkUrl !== 'string' || !isSafeMediaUrl(body.heroArtworkUrl.trim())) return jsonError('رابط صورة الواجهة غير صالح');
+        updates.heroArtworkUrl = mediaUrlFromStorageKey(normalizeMediaUrl(body.heroArtworkUrl.trim()), getPublicPlatformOrigin());
       }
 
       if (body.shareVideoUrl !== undefined) {
         if (body.shareVideoUrl === null || body.shareVideoUrl === '') {
           updates.shareVideoUrl = undefined;
-        } else if (typeof body.shareVideoUrl !== 'string' || !isSafeHttpUrl(body.shareVideoUrl.trim())) {
+        } else if (typeof body.shareVideoUrl !== 'string' || !isSafeMediaUrl(body.shareVideoUrl.trim())) {
           return jsonError('رابط فيديو المشاركة غير صالح');
         } else {
           updates.shareVideoUrl = body.shareVideoUrl.trim();
@@ -647,10 +683,15 @@ export async function PATCH(req: Request) {
         if (duplicate) return jsonError('المعرّف (slug) مستخدم مسبقاً لمسلسل آخر', 409);
       }
 
+      const mediaUpdates = buildSeriesMediaUpdates(updates);
+      const replacedMediaKeys = collectReplacedSeriesMediaKeys(series, mediaUpdates);
+
       for (const [key, value] of Object.entries(updates)) {
         (series as any)[key] = value;
       }
       await series.save();
+
+      const storageCleanup = await cleanupContentMedia(replacedMediaKeys);
 
       const after = seriesSummary(series);
       const diff = diffFields(before, after);
@@ -660,10 +701,13 @@ export async function PATCH(req: Request) {
         targetEntity: 'Series',
         entityId: seriesId,
         previousState: diff?.previousState ?? null,
-        newState: diff?.newState ?? after,
+        newState: {
+          ...(diff?.newState ?? after),
+          storageCleanup,
+        },
       });
 
-      return jsonOk({ success: true, series: seriesSummary(series) });
+      return jsonOk({ success: true, series: seriesSummary(series), storageCleanup });
     }
 
     // ---------- تحديث موسم ----------
@@ -784,7 +828,7 @@ export async function PATCH(req: Request) {
       if (body.artworkOverride !== undefined) {
         if (body.artworkOverride === null || body.artworkOverride === '') {
           updates.artworkOverride = undefined;
-        } else if (typeof body.artworkOverride !== 'string' || !isSafeHttpUrl(body.artworkOverride.trim())) {
+        } else if (typeof body.artworkOverride !== 'string' || !isSafeMediaUrl(body.artworkOverride.trim())) {
           return jsonError('رابط صورة الحلقة غير صالح');
         } else {
           updates.artworkOverride = body.artworkOverride.trim();
@@ -818,8 +862,15 @@ export async function PATCH(req: Request) {
       if (body.audioStorageKey !== undefined) {
         if (body.audioStorageKey === null || body.audioStorageKey === '') {
           updates.audioStorageKey = undefined;
+        } else if (typeof body.audioStorageKey !== 'string') {
+          return jsonError('معرف التخزين الصوتي غير صالح');
         } else if (typeof body.audioStorageKey === 'string') {
-          updates.audioStorageKey = body.audioStorageKey.trim();
+          const storageValidation = validateUploadFinalizeInput({
+            storageKey: body.audioStorageKey,
+            category: 'audio',
+          });
+          if (!storageValidation.ok) return jsonError(storageValidation.error, storageValidation.status);
+          updates.audioStorageKey = storageValidation.data.storageKey;
           // حماية الصوت: الماستر الصوتي في التخزين محمي ولا يملك رابطاً عاماً
           updates.audioPublicUrl = undefined;
         }
@@ -828,9 +879,12 @@ export async function PATCH(req: Request) {
       if (body.audioPublicUrl !== undefined && !updates.audioStorageKey) {
         if (body.audioPublicUrl === null || body.audioPublicUrl === '') {
           updates.audioPublicUrl = undefined;
+        } else if (typeof body.audioPublicUrl !== 'string') {
+          return jsonError('رابط الصوت العام غير صالح');
         } else if (typeof body.audioPublicUrl === 'string') {
           // إذا كانت الحلقة تمتلك معرف تخزين ولم يتم حذفه، يظل الرابط العام ملغياً
           if (!episode.audioStorageKey || updates.audioStorageKey === undefined && body.audioStorageKey === null) {
+            if (!isSafeMediaUrl(body.audioPublicUrl.trim())) return jsonError('رابط الصوت العام غير صالح');
             updates.audioPublicUrl = body.audioPublicUrl.trim();
           }
         }
@@ -848,6 +902,9 @@ export async function PATCH(req: Request) {
         if (duplicate) return jsonError('يوجد حلقة بنفس الرقم في هذا الموسم', 409);
       }
 
+      const mediaUpdates = buildEpisodeMediaUpdates(updates);
+      const replacedMediaKeys = collectReplacedEpisodeMediaKeys(episode, mediaUpdates);
+
       for (const [key, value] of Object.entries(updates)) {
         (episode as any)[key] = value;
       }
@@ -858,6 +915,8 @@ export async function PATCH(req: Request) {
       }
 
       await episode.save();
+
+      const storageCleanup = await cleanupContentMedia(replacedMediaKeys);
 
       const diff = diffFields(before, {
         episodeNumber: episode.episodeNumber,
@@ -874,10 +933,13 @@ export async function PATCH(req: Request) {
         targetEntity: 'Episode',
         entityId: episodeId,
         previousState: diff?.previousState ?? null,
-        newState: diff?.newState ?? null,
+        newState: {
+          ...(diff?.newState ?? null),
+          storageCleanup,
+        },
       });
 
-      return jsonOk({ success: true, title: episode.title, isFree: episode.isFree });
+      return jsonOk({ success: true, title: episode.title, isFree: episode.isFree, storageCleanup });
     }
 
     // ---------- المسارات القديمة المحفوظة (بدون entity) ----------
@@ -1036,12 +1098,29 @@ export async function DELETE(req: Request) {
       }
 
       const seasonIds = seasons.map((s: any) => s._id);
-      const episodes = await Episode.find({ seriesId: series._id }).select('_id').lean();
+      const episodes = await Episode.find({ seriesId: series._id })
+        .select('_id audioStorageKey audioPublicUrl artworkOverride')
+        .lean();
       const episodeIds = episodes.map((e: any) => e._id);
+      const shareAssets = await ShareAsset.find({ seriesId: series._id }).select('storageKey publicUrl').lean();
+      const mediaKeys = collectMediaKeysFromRecord(series, ['posterUrl', 'heroArtworkUrl', 'shareVideoUrl']);
+      for (const episode of episodes as any[]) {
+        mergeMediaKeys(mediaKeys, collectMediaKeysFromRecord(episode, ['audioStorageKey', 'audioPublicUrl', 'artworkOverride']));
+      }
+      for (const shareAsset of shareAssets as any[]) {
+        mergeMediaKeys(mediaKeys, collectMediaKeysFromRecord(shareAsset, ['storageKey', 'publicUrl']));
+      }
       const deletedTranscripts = await Transcript.deleteMany({ episodeId: { $in: episodeIds } });
       await Episode.deleteMany({ seriesId: series._id });
       await Season.deleteMany({ _id: { $in: seasonIds } });
+      await ShareAsset.deleteMany({ seriesId: series._id });
+      await HomepageSection.updateMany(
+        { manualSeriesIds: series._id },
+        { $pull: { manualSeriesIds: series._id } }
+      );
       await series.deleteOne();
+
+      const storageCleanup = await cleanupContentMedia(mediaKeys);
 
       await writeAudit({
         adminUserId: admin.userId,
@@ -1049,10 +1128,17 @@ export async function DELETE(req: Request) {
         targetEntity: 'Series',
         entityId: id,
         previousState: seriesSummary(series),
-        newState: { cascade, deletedSeasons: seasons.length, deletedEpisodes: episodeIds.length, deletedTranscripts: deletedTranscripts.deletedCount },
+        newState: {
+          cascade,
+          deletedSeasons: seasons.length,
+          deletedEpisodes: episodeIds.length,
+          deletedTranscripts: deletedTranscripts.deletedCount,
+          deletedShareAssets: shareAssets.length,
+          storageCleanup,
+        },
       });
 
-      return jsonOk({ success: true });
+      return jsonOk({ success: true, storageCleanup });
     }
 
     // ---------- حذف موسم ----------
@@ -1061,7 +1147,9 @@ export async function DELETE(req: Request) {
       const season = await Season.findById(id);
       if (!season) return jsonError('الموسم غير موجود', 404);
 
-      const episodes = await Episode.find({ seasonId: season._id }).select('_id').lean();
+      const episodes = await Episode.find({ seasonId: season._id })
+        .select('_id audioStorageKey audioPublicUrl artworkOverride')
+        .lean();
       if (episodes.length > 0 && !cascade) {
         return jsonError('لا يمكن حذف موسم يحتوي حلقات — فعّل الحذف الشامل لإزالة الحلقات ونصوصها أيضاً', 409, { episodesCount: episodes.length });
       }
@@ -1078,10 +1166,16 @@ export async function DELETE(req: Request) {
       }
 
       const episodeIds = episodes.map((e: any) => e._id);
+      const mediaKeys = new Set<string>();
+      for (const episode of episodes as any[]) {
+        mergeMediaKeys(mediaKeys, collectMediaKeysFromRecord(episode, ['audioStorageKey', 'audioPublicUrl', 'artworkOverride']));
+      }
       const deletedTranscripts = await Transcript.deleteMany({ episodeId: { $in: episodeIds } });
       await Episode.deleteMany({ _id: { $in: episodeIds } });
       await season.deleteOne();
       await syncSeriesCounters(season.seriesId.toString());
+
+      const storageCleanup = await cleanupContentMedia(mediaKeys);
 
       await writeAudit({
         adminUserId: admin.userId,
@@ -1089,10 +1183,15 @@ export async function DELETE(req: Request) {
         targetEntity: 'Season',
         entityId: id,
         previousState: { seasonNumber: season.seasonNumber, title: season.title },
-        newState: { seriesId: season.seriesId.toString(), deletedEpisodes: episodes.length, deletedTranscripts: deletedTranscripts.deletedCount },
+        newState: {
+          seriesId: season.seriesId.toString(),
+          deletedEpisodes: episodes.length,
+          deletedTranscripts: deletedTranscripts.deletedCount,
+          storageCleanup,
+        },
       });
 
-      return jsonOk({ success: true });
+      return jsonOk({ success: true, storageCleanup });
     }
 
     // ---------- حذف حلقة ----------
@@ -1102,6 +1201,11 @@ export async function DELETE(req: Request) {
       if (!episode) return jsonError('الحلقة غير موجودة', 404);
 
       const transcript = await Transcript.findOne({ episodeId: episode._id }).select('_id').lean();
+      const mediaKeys = collectMediaKeysFromRecord(episode, [
+        'audioStorageKey',
+        'audioPublicUrl',
+        'artworkOverride',
+      ]);
       if (transcript && !deleteTranscript) {
         return jsonError('هذه الحلقة لها نص متزامن — فعّل حذف النص معها لتجنب مرجع معلق', 409, { hasTranscript: true });
       }
@@ -1113,16 +1217,18 @@ export async function DELETE(req: Request) {
       await syncSeasonEpisodesCount(episode.seasonId.toString());
       await syncSeriesCounters(episode.seriesId.toString());
 
+      const storageCleanup = await cleanupContentMedia(mediaKeys);
+
       await writeAudit({
         adminUserId: admin.userId,
         action: 'DELETE_EPISODE',
         targetEntity: 'Episode',
         entityId: id,
         previousState: { episodeNumber: episode.episodeNumber, title: episode.title },
-        newState: { deletedTranscript: Boolean(transcript) },
+        newState: { deletedTranscript: Boolean(transcript), storageCleanup },
       });
 
-      return jsonOk({ success: true });
+      return jsonOk({ success: true, storageCleanup });
     }
 
     // ---------- حذف النص المتزامن فقط ----------

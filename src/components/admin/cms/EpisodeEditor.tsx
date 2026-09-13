@@ -64,7 +64,7 @@ function isValidHttpUrl(value: string): boolean {
 
 const AUDIO_BADGE_STYLES: Record<AudioStatus, string> = {
   MISSING: 'bg-red-950/40 text-red-300 border border-red-800',
-  PROTECTED: 'bg-crimson-subtle text-crimson border border-crimson/40',
+  PROTECTED: 'bg-crimson-subtle text-[#E85A65] border border-crimson/40',
   PUBLIC: 'bg-surface border border-border-strong text-editorial-secondary',
 };
 
@@ -85,16 +85,18 @@ export const EpisodeEditor: React.FC<EpisodeEditorProps> = ({
 
   const [audioStatus, setAudioStatus] = useState<AudioStatus>(episode?.audioStatus ?? 'MISSING');
   const [audioUrl, setAudioUrl] = useState<string>(episode?.audioPublicUrl || '');
+  // رابط البث الموقّت للمعاينة فقط؛ لا يدخل في payload ولا يجعل النموذج "متسخاً".
+  const [audioPreviewUrl, setAudioPreviewUrl] = useState<string>(episode?.audioPublicUrl || '');
   const [audioStorageKey, setAudioStorageKey] = useState<string>(episode?.audioStorageKey || '');
 
   // استرجاع رابط البث للمعاينة إذا كانت الحلقة تحتوي على ملف صوتي محمي مسبقاً
   useEffect(() => {
     if (episode?._id && episode.audioStatus !== 'MISSING' && !audioUrl) {
-      fetch(`/api/v1/episodes/${episode._id}/stream`)
+      fetch(`/api/v1/admin/content/audio?episodeId=${episode._id}`)
         .then((r) => (r.ok ? r.json() : null))
         .then((data) => {
           if (data?.streamUrl) {
-            setAudioUrl(data.streamUrl);
+            setAudioPreviewUrl(data.streamUrl);
           }
         })
         .catch(() => {});
@@ -273,9 +275,11 @@ export const EpisodeEditor: React.FC<EpisodeEditorProps> = ({
           <MediaUploadDropzone
             label="ملف الصوت الخاص بالحلقة"
             category="audio"
-            value={audioUrl}
+            value={audioPreviewUrl}
+            storageKey={audioStorageKey}
             onChange={(url) => {
               setAudioUrl(url);
+              setAudioPreviewUrl(url);
               setAudioStatus('PROTECTED');
             }}
             onStorageKeyChange={(key) => {
@@ -287,7 +291,7 @@ export const EpisodeEditor: React.FC<EpisodeEditorProps> = ({
                 setField('durationMinutes', (durationSecs / 60).toFixed(1));
               }
             }}
-            helperText="يُرفع الملف الصوتي مباشرة من المتصفح إلى Cloudflare R2 مع معاينة فورية وإمكانية الاستماع قبل الحفظ (يدعم حتى 500 ميغابايت)"
+              helperText="يُرفع إلى R2 مع معاينة وحساب المدة تلقائياً."
           />
         </div>
 

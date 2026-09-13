@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getCurrentAdmin } from '@/lib/auth';
+import { hasR2Configuration, isProductionRuntime } from '@/lib/config/runtime';
 import {
   StorageService,
   validateUploadAuthorizeInput,
@@ -12,8 +13,11 @@ const CONTENT_ROLES = ['SUPER_ADMIN', 'ADMIN', 'CONTENT_EDITOR'];
 export async function POST(req: Request) {
   try {
     const admin = await getCurrentAdmin();
-    if (!admin || !CONTENT_ROLES.includes(admin.role)) {
-      return NextResponse.json({ error: 'غير مصرح لك بطلب ترخيص رفع الوسائط' }, { status: 401 });
+    if (!admin) {
+      return NextResponse.json({ error: 'غير مصرح لك — يرجى تسجيل الدخول كمسؤول' }, { status: 401 });
+    }
+    if (!CONTENT_ROLES.includes(admin.role)) {
+      return NextResponse.json({ error: 'ليس لديك صلاحية طلب ترخيص رفع الوسائط' }, { status: 403 });
     }
 
     let body: unknown;
@@ -64,7 +68,15 @@ export async function POST(req: Request) {
       });
     }
 
-    // في حال عدم توفر مفاتيح R2 (مثل بيئة التطوير المحلية غير المربوطة)
+    // في بيئة الإنتاج: الرفع المباشر إلى Cloudflare R2 إلزامي ولا يُسمح بالمسار البديل
+    if (isProductionRuntime()) {
+      return NextResponse.json(
+        { error: 'خدمة التخزين السحابي Cloudflare R2 غير مهيأة أو تعذر إنشاء رابط الرفع المباشر في بيئة الإنتاج' },
+        { status: 503 }
+      );
+    }
+
+    // في حال عدم توفر مفاتيح R2 في بيئة التطوير المحلية المستقلة فقط
     return NextResponse.json({
       success: true,
       directR2: false,

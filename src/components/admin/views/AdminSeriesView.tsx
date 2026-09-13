@@ -1,14 +1,13 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import Image from 'next/image';
 import {
   Film,
   Plus,
   Pencil,
   Trash2,
   Layers,
-  Sparkles,
+  Star,
   Eye,
   Check,
   Search,
@@ -20,6 +19,7 @@ import { SeriesEditor } from '../cms/SeriesEditor';
 import { ConfirmDialog } from '../cms/ConfirmDialog';
 import { SeriesStudioView } from '../cms/SeriesStudioView';
 import { adminApi } from '../cms/shared';
+import { AdaptiveImage } from '@/components/media/AdaptiveImage';
 
 interface Props {
   seriesList: AdminSeriesDTO[];
@@ -102,30 +102,31 @@ export const AdminSeriesView: React.FC<Props> = ({
         <div className="space-y-1">
           <h2 className="text-lg font-bold text-editorial-ivory flex items-center gap-2">
             <Film size={20} className="text-crimson" />
-            <span>إدارة المسلسلات الدرامية</span>
+            <span>المسلسلات</span>
           </h2>
           <p className="text-xs text-editorial-muted">
-            إجمالي {seriesList.length} أعمال صوتية مسجلة في المنصة
+            {seriesList.length} أعمال مسجلة
           </p>
         </div>
 
         <div className="flex items-center gap-3 w-full sm:w-auto">
           {/* حقل البحث السريع */}
           <div className="relative flex-1 sm:w-64">
-            <Search size={15} className="absolute start-3 top-1/2 -translate-y-1/2 text-editorial-muted" />
+            <Search size={15} className="absolute start-3 top-1/2 -translate-y-1/2 text-editorial-muted pointer-events-none" />
             <input
               type="text"
-              placeholder="بحث عن مسلسل أو تصنيف..."
+              placeholder="بحث في المسلسلات..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full min-h-10 ps-9 pe-3 rounded-xl bg-surface-elevated border border-border-subtle text-xs text-editorial-ivory placeholder:text-editorial-muted focus:outline-none focus:border-crimson"
+              aria-label="البحث في المسلسلات"
+              className="w-full min-h-11 ps-9 pe-3 rounded-xl bg-surface-elevated border border-border-subtle text-xs text-editorial-ivory placeholder:text-editorial-muted focus:outline-none focus:border-crimson focus-visible:ring-2 focus-visible:ring-crimson"
             />
           </div>
 
           <button
             type="button"
             onClick={() => setEditingSeries('NEW')}
-            className="min-h-10 px-4 rounded-xl bg-crimson hover:bg-crimson-bright text-white text-xs font-bold flex items-center gap-2 shadow-halo shrink-0 transition-transform active:scale-95"
+            className="min-h-11 px-4 rounded-xl bg-crimson hover:bg-crimson-bright text-white text-xs font-bold flex items-center gap-2 shadow-halo shrink-0 transition-transform active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson"
           >
             <Plus size={16} />
             <span>مسلسل جديد</span>
@@ -146,26 +147,28 @@ export const AdminSeriesView: React.FC<Props> = ({
               key={series._id}
               className="rounded-2xl bg-surface border border-border-subtle hover:border-border-strong overflow-hidden flex flex-col justify-between transition-all duration-300 group shadow-sm"
             >
-              <div className="p-4 flex gap-4">
+              <div className="p-4 flex gap-3 sm:gap-4">
                 {/* بوستر العمل المصغر */}
-                <div
+                <button
+                  type="button"
                   onClick={() => setStudioSeriesId(series._id)}
-                  className="relative w-24 h-32 rounded-xl overflow-hidden shrink-0 border border-white/10 bg-black cursor-pointer group-hover:border-crimson/50 transition-colors"
-                  title="انقر لفتح استوديو العمل"
+                  className="relative w-20 h-28 sm:w-24 sm:h-32 rounded-xl overflow-hidden shrink-0 border border-white/10 bg-black cursor-pointer group-hover:border-crimson/50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson"
+                  aria-label={`فتح استوديو ${series.title}`}
                 >
-                  <Image
+                  <AdaptiveImage
                     src={series.posterUrl}
+                    unoptimized
                     alt={series.title}
-                    fill
-                    sizes="96px"
+                    fit="cover"
+                    sizes="(max-width: 640px) 80px, 96px"
                     className="object-cover group-hover:scale-105 transition-transform duration-500"
                   />
                   {series.featured && (
                     <div className="absolute top-1.5 start-1.5 p-1 rounded-md bg-crimson text-white shadow-halo">
-                      <Sparkles size={11} />
+                      <Star size={11} aria-hidden="true" />
                     </div>
                   )}
-                </div>
+                </button>
 
                 {/* بيانات العمل التحريرية */}
                 <div className="flex-1 min-w-0 space-y-1.5 text-right">
@@ -178,12 +181,15 @@ export const AdminSeriesView: React.FC<Props> = ({
                     </span>
                   </div>
 
-                  <h3
-                    onClick={() => setStudioSeriesId(series._id)}
-                    className="text-base font-bold font-display text-editorial-ivory truncate group-hover:text-crimson transition-colors cursor-pointer"
-                    title="انقر لفتح استوديو العمل"
-                  >
-                    {series.title}
+                  <h3 className="text-base font-bold font-display text-editorial-ivory truncate group-hover:text-crimson transition-colors">
+                    <button
+                      type="button"
+                      onClick={() => setStudioSeriesId(series._id)}
+                      className="block w-full text-right truncate focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson rounded"
+                      aria-label={`فتح استوديو ${series.title}`}
+                    >
+                      {series.title}
+                    </button>
                   </h3>
 
                   <p className="text-xs text-editorial-secondary line-clamp-2 font-reading">
@@ -204,24 +210,27 @@ export const AdminSeriesView: React.FC<Props> = ({
               </div>
 
               {/* إحصائيات سريعة وأزرار الإجراءات */}
-              <div className="px-4 py-3 border-t border-border-subtle/60 bg-surface-elevated/30 flex items-center justify-between gap-2">
-                <div className="flex items-center gap-3 text-xs text-editorial-muted">
+              <div className="px-4 py-3 border-t border-border-subtle/60 bg-surface-elevated/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-editorial-muted">
                   <span>{series.seasons?.length || 0} مواسم</span>
                   <span>•</span>
                   <span>{totalEpisodes} حلقة</span>
                   <span>•</span>
-                  <span className="text-emerald-400 font-medium">
-                    {series.freeEpisodesCount} مجانية
+                  <span className={series.freeEpisodesCount > 0 ? 'text-emerald-400 font-medium' : 'text-editorial-muted'}>
+                    {series.freeEpisodesCount > 0
+                      ? `${series.freeEpisodesCount} مجانية`
+                      : 'لا توجد مجانية'}
                   </span>
                 </div>
 
-                <div className="flex items-center gap-1.5">
+                <div className="w-full sm:w-auto flex flex-wrap items-center justify-end gap-1.5">
                   {/* فتح استوديو المسلسل والمواسم والحلقات */}
                   <button
                     type="button"
                     onClick={() => setStudioSeriesId(series._id)}
-                    className="min-h-8 px-2.5 rounded-lg bg-crimson/15 hover:bg-crimson text-crimson hover:text-white border border-crimson/30 hover:border-crimson text-xs font-bold flex items-center gap-1.5 transition-all shadow-sm"
+                    className="min-h-11 px-2.5 rounded-lg bg-crimson/15 hover:bg-crimson text-crimson hover:text-white border border-crimson/30 hover:border-crimson text-xs font-bold flex items-center gap-1.5 transition-all shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson"
                     title="فتح استوديو العمل والمواسم والحلقات"
+                    aria-label={`استوديو ${series.title}`}
                   >
                     <Radio size={13} />
                     <span>استوديو العمل</span>
@@ -231,8 +240,9 @@ export const AdminSeriesView: React.FC<Props> = ({
                   <button
                     type="button"
                     onClick={() => onManageSeasons(series._id)}
-                    className="min-h-8 px-2.5 rounded-lg bg-surface hover:bg-surface-elevated border border-border-subtle text-editorial-secondary hover:text-editorial-ivory text-xs flex items-center gap-1 transition-colors"
+                    className="min-h-11 px-2.5 rounded-lg bg-surface hover:bg-surface-elevated border border-border-subtle text-editorial-secondary hover:text-editorial-ivory text-xs flex items-center gap-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson"
                     title="إدارة مواسم وحلقات هذا العمل"
+                    aria-label={`مواسم ${series.title}`}
                   >
                     <Layers size={13} className="text-amber-400" />
                     <span>المواسم</span>
@@ -242,8 +252,9 @@ export const AdminSeriesView: React.FC<Props> = ({
                   <button
                     type="button"
                     onClick={() => setEditingSeries(series)}
-                    className="w-8 h-8 rounded-lg bg-surface hover:bg-surface-elevated border border-border-subtle text-editorial-secondary hover:text-editorial-ivory flex items-center justify-center transition-colors"
+                    className="min-w-11 min-h-11 rounded-lg bg-surface hover:bg-surface-elevated border border-border-subtle text-editorial-secondary hover:text-editorial-ivory flex items-center justify-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson"
                     title="تعديل بيانات وغلاف العمل"
+                    aria-label={`تعديل ${series.title}`}
                   >
                     <Pencil size={13} />
                   </button>
@@ -252,8 +263,9 @@ export const AdminSeriesView: React.FC<Props> = ({
                   <button
                     type="button"
                     onClick={() => setDeletingSeries(series)}
-                    className="w-8 h-8 rounded-lg bg-surface hover:bg-red-950/40 border border-border-subtle hover:border-red-800 text-editorial-secondary hover:text-red-300 flex items-center justify-center transition-colors"
+                    className="min-w-11 min-h-11 rounded-lg bg-surface hover:bg-red-950/40 border border-border-subtle hover:border-red-800 text-editorial-secondary hover:text-red-300 flex items-center justify-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300"
                     title="حذف المسلسل بالكامل"
+                    aria-label={`حذف ${series.title}`}
                   >
                     <Trash2 size={13} />
                   </button>
@@ -268,8 +280,26 @@ export const AdminSeriesView: React.FC<Props> = ({
         <div className="p-12 text-center rounded-2xl bg-surface border border-border-subtle space-y-3">
           <Film size={32} className="mx-auto text-editorial-muted" />
           <p className="text-sm text-editorial-secondary font-medium">
-            لا توجد أعمال تطابق مصطلح البحث
+            {searchTerm ? 'لا توجد أعمال تطابق مصطلح البحث' : 'لا توجد أعمال مسجلة بعد'}
           </p>
+          {searchTerm ? (
+            <button
+              type="button"
+              onClick={() => setSearchTerm('')}
+              className="min-h-11 px-4 rounded-xl bg-surface-elevated hover:bg-border-subtle border border-border-subtle text-editorial-ivory text-xs font-bold inline-flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson"
+            >
+              مسح البحث
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setEditingSeries('NEW')}
+              className="min-h-11 px-4 rounded-xl bg-crimson hover:bg-crimson-bright text-white text-xs font-bold inline-flex items-center gap-2 shadow-halo focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson"
+            >
+              <Plus size={14} aria-hidden="true" />
+              إضافة أول مسلسل
+            </button>
+          )}
         </div>
       )}
 

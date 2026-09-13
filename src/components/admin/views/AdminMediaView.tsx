@@ -9,7 +9,6 @@ import {
   FileText,
   Copy,
   Check,
-  ExternalLink,
   ShieldCheck,
   HardDrive,
 } from 'lucide-react';
@@ -80,16 +79,16 @@ export const AdminMediaView: React.FC<Props> = ({ showNotice }) => {
         <div className="space-y-1">
           <h2 className="text-lg font-bold text-editorial-ivory flex items-center gap-2">
             <HardDrive size={20} className="text-crimson" />
-            <span>منصة وسائط التخزين السحابية (Cloudflare R2 Direct)</span>
+            <span>الوسائط</span>
           </h2>
           <p className="text-xs text-editorial-muted">
-            رفع مباشر وآمن من المتصفح إلى الحاوية السحابية وتوليد مفاتيح التخزين المعتمدة
+            ارفع الصور والصوت والفيديو إلى التخزين المرتبط بالمنصة
           </p>
         </div>
 
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-950/40 border border-emerald-800/40 text-emerald-400 text-xs font-bold shrink-0">
-          <ShieldCheck size={16} />
-          <span>تخزين R2 متصل ونشط</span>
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-surface-elevated border border-border-subtle text-editorial-secondary text-xs font-bold shrink-0">
+          <ShieldCheck size={16} aria-hidden="true" />
+          <span>رفع مباشر</span>
         </div>
       </div>
 
@@ -98,10 +97,10 @@ export const AdminMediaView: React.FC<Props> = ({ showNotice }) => {
         {/* عمود الرفع واختيار الفئة */}
         <div className="lg:col-span-7 p-6 rounded-2xl bg-surface border border-border-subtle space-y-5">
           <div>
-            <label className="text-xs font-bold text-editorial-secondary block mb-2">
-              اختر فئة الملف المرفوع:
+            <label id="category-group-label" className="text-xs font-bold text-editorial-secondary block mb-2">
+              نوع الملف
             </label>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-2" role="group" aria-labelledby="category-group-label">
               {categories.map((cat) => {
                 const Icon = cat.icon;
                 const isSelected = selectedCategory === cat.key;
@@ -114,11 +113,12 @@ export const AdminMediaView: React.FC<Props> = ({ showNotice }) => {
                       setCurrentUrl('');
                       setCurrentStorageKey('');
                     }}
-                    className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-2 border transition-all ${
+                    className={`min-h-11 px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-2 border transition-all ${
                       isSelected
                         ? 'bg-crimson text-white border-crimson shadow-halo'
                         : 'bg-surface-elevated text-editorial-secondary hover:text-editorial-ivory border-border-subtle'
-                    }`}
+                    } focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson`}
+                    aria-pressed={isSelected}
                   >
                     <Icon size={14} />
                     <span>{cat.label}</span>
@@ -134,25 +134,29 @@ export const AdminMediaView: React.FC<Props> = ({ showNotice }) => {
             value={currentUrl}
             onChange={handleUploaded}
             onStorageKeyChange={handleStorageKeyChange}
-            helperText="اسحب الملف هنا أو انقر للاختيار. سيتم رفعه مباشرة وبسرعة فائقة إلى R2 دون استهلاك خوادم الموقع."
+            helperText="اسحب الملف أو اختره من جهازك."
           />
 
           {currentStorageKey && (
             <div className="p-4 rounded-xl bg-surface-elevated/70 border border-border-subtle space-y-2">
-              <span className="text-[11px] text-editorial-muted font-bold block">
-                مفتاح التخزين المعتمد (Storage Key):
-              </span>
+              <label htmlFor="current-storage-key-input" className="text-[11px] text-editorial-muted font-bold block">
+                مفتاح التخزين
+              </label>
               <div className="flex items-center gap-2">
                 <input
+                  id="current-storage-key-input"
                   type="text"
                   readOnly
                   value={currentStorageKey}
-                  className="w-full bg-obsidian-900 border border-border-subtle rounded-lg px-3 py-1.5 text-xs text-editorial-ivory font-mono"
+                  dir="ltr"
+                  aria-label="مفتاح التخزين المعتمد"
+                  className="w-full min-h-11 bg-obsidian-900 border border-border-subtle rounded-lg px-3 py-1.5 text-xs text-editorial-ivory font-mono focus-visible:ring-2 focus-visible:ring-crimson text-left"
                 />
                 <button
                   type="button"
                   onClick={() => copyToClipboard(currentStorageKey)}
-                  className="min-h-8 px-3 rounded-lg bg-surface hover:bg-surface-elevated border border-border-subtle text-editorial-secondary hover:text-editorial-ivory text-xs flex items-center gap-1.5 transition-colors shrink-0"
+                  className="min-h-11 px-3 rounded-lg bg-surface hover:bg-surface-elevated border border-border-subtle text-editorial-secondary hover:text-editorial-ivory text-xs flex items-center gap-1.5 transition-colors shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson"
+                  aria-label={copiedKey === currentStorageKey ? 'تم نسخ مفتاح التخزين' : 'نسخ مفتاح التخزين'}
                 >
                   {copiedKey === currentStorageKey ? (
                     <>
@@ -176,7 +180,7 @@ export const AdminMediaView: React.FC<Props> = ({ showNotice }) => {
           <div className="border-b border-border-subtle pb-3 flex items-center justify-between">
             <h3 className="text-sm font-bold text-editorial-ivory flex items-center gap-2">
               <FolderUp size={16} className="text-amber-400" />
-              <span>سجل الملفات المرفوعة في هذه الجلسة</span>
+              <span>آخر الرفوعات</span>
             </h3>
             <span className="text-xs text-editorial-muted font-mono">{uploadHistory.length}</span>
           </div>
@@ -196,7 +200,10 @@ export const AdminMediaView: React.FC<Props> = ({ showNotice }) => {
                       {item.timestamp}
                     </span>
                   </div>
-                  <span className="text-editorial-ivory font-mono text-[11px] block truncate max-w-[200px]">
+                  <span
+                    dir="ltr"
+                    className="text-editorial-ivory font-mono text-[11px] block truncate max-w-[160px] sm:max-w-xs text-left"
+                  >
                     {item.storageKey}
                   </span>
                 </div>
@@ -204,8 +211,9 @@ export const AdminMediaView: React.FC<Props> = ({ showNotice }) => {
                 <button
                   type="button"
                   onClick={() => copyToClipboard(item.storageKey)}
-                  className="w-8 h-8 rounded-lg bg-surface hover:bg-surface-elevated border border-border-subtle text-editorial-secondary hover:text-editorial-ivory flex items-center justify-center shrink-0 transition-colors"
+                  className="min-w-11 min-h-11 rounded-lg bg-surface hover:bg-surface-elevated border border-border-subtle text-editorial-secondary hover:text-editorial-ivory flex items-center justify-center shrink-0 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson"
                   title="نسخ مفتاح التخزين"
+                  aria-label={copiedKey === item.storageKey ? `تم نسخ ${item.storageKey}` : `نسخ ${item.storageKey}`}
                 >
                   {copiedKey === item.storageKey ? (
                     <Check size={13} className="text-emerald-400" />

@@ -339,7 +339,7 @@ export const UsersPanel: React.FC<UsersPanelProps> = ({
           <button
             type="button"
             onClick={() => loadUsers(page, searchQuery, statusFilter)}
-            className="min-h-11 mr-auto px-4 py-1 text-xs font-bold underline hover:no-underline"
+            className="min-h-11 mr-auto px-4 py-1 text-xs font-bold underline hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson rounded"
           >
             إعادة المحاولة
           </button>
@@ -504,7 +504,7 @@ export const UsersPanel: React.FC<UsersPanelProps> = ({
                     <button
                       type="button"
                       onClick={() => handleOpenDetail(user)}
-                      className="min-h-11 flex-1 px-3 py-1.5 rounded-lg border border-border-subtle bg-surface text-xs font-semibold text-editorial-secondary hover:text-editorial-ivory flex items-center justify-center gap-1"
+                      className="min-h-11 flex-1 px-3 py-1.5 rounded-lg border border-border-subtle bg-surface text-xs font-semibold text-editorial-secondary hover:text-editorial-ivory flex items-center justify-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson"
                     >
                       <Eye className="h-3.5 w-3.5" />
                       <span>التفاصيل</span>
@@ -514,7 +514,7 @@ export const UsersPanel: React.FC<UsersPanelProps> = ({
                       <button
                         type="button"
                         onClick={() => promptStatusChange(user, 'SUSPENDED')}
-                        className="min-h-11 flex-1 px-3 py-1.5 rounded-lg border border-amber-800/50 bg-amber-950/20 text-xs font-semibold text-amber-300 flex items-center justify-center gap-1"
+                        className="min-h-11 flex-1 px-3 py-1.5 rounded-lg border border-amber-800/50 bg-amber-950/20 text-xs font-semibold text-amber-300 flex items-center justify-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
                       >
                         <UserX className="h-3.5 w-3.5" />
                         <span>تعليق</span>
@@ -525,7 +525,7 @@ export const UsersPanel: React.FC<UsersPanelProps> = ({
                       <button
                         type="button"
                         onClick={() => promptStatusChange(user, 'ACTIVE')}
-                        className="min-h-11 flex-1 px-3 py-1.5 rounded-lg border border-emerald-800/50 bg-emerald-950/20 text-xs font-semibold text-emerald-300 flex items-center justify-center gap-1"
+                        className="min-h-11 flex-1 px-3 py-1.5 rounded-lg border border-emerald-800/50 bg-emerald-950/20 text-xs font-semibold text-emerald-300 flex items-center justify-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
                       >
                         <UserCheck className="h-3.5 w-3.5" />
                         <span>تنشيط</span>
@@ -536,7 +536,7 @@ export const UsersPanel: React.FC<UsersPanelProps> = ({
                       <button
                         type="button"
                         onClick={() => promptStatusChange(user, 'BANNED')}
-                        className="min-h-11 flex-1 px-3 py-1.5 rounded-lg border border-crimson/50 bg-crimson-subtle text-xs font-semibold text-crimson-bright flex items-center justify-center gap-1"
+                        className="min-h-11 flex-1 px-3 py-1.5 rounded-lg border border-crimson/50 bg-crimson-subtle text-xs font-semibold text-crimson-bright flex items-center justify-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson"
                       >
                         <ShieldAlert className="h-3.5 w-3.5" />
                         <span>حظر</span>
@@ -545,7 +545,7 @@ export const UsersPanel: React.FC<UsersPanelProps> = ({
                       <button
                         type="button"
                         onClick={() => promptStatusChange(user, 'ACTIVE')}
-                        className="min-h-11 flex-1 px-3 py-1.5 rounded-lg border border-border-strong bg-surface text-xs font-semibold text-editorial-ivory flex items-center justify-center gap-1"
+                        className="min-h-11 flex-1 px-3 py-1.5 rounded-lg border border-border-strong bg-surface text-xs font-semibold text-editorial-ivory flex items-center justify-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
                       >
                         <UserCheck className="h-3.5 w-3.5" />
                         <span>إلغاء الحظر</span>
@@ -576,7 +576,7 @@ export const UsersPanel: React.FC<UsersPanelProps> = ({
                   setLimit(Number(e.target.value));
                   setPage(1);
                 }}
-                className="min-h-11 rounded-lg border border-border-subtle bg-surface px-2.5 text-xs text-editorial-ivory focus:border-crimson focus:outline-none"
+                className="min-h-11 rounded-lg border border-border-subtle bg-surface px-2.5 text-xs text-editorial-ivory focus:border-crimson focus:outline-none focus-visible:ring-2 focus-visible:ring-crimson"
               >
                 <option value={10}>10 بالصفحة</option>
                 <option value={20}>20 بالصفحة</option>
@@ -588,7 +588,7 @@ export const UsersPanel: React.FC<UsersPanelProps> = ({
                 type="button"
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
                 disabled={page <= 1}
-                className="min-h-11 min-w-11 flex items-center justify-center rounded-lg border border-border-subtle bg-surface text-editorial-secondary hover:text-editorial-ivory disabled:opacity-40"
+                className="min-h-11 min-w-11 flex items-center justify-center rounded-lg border border-border-subtle bg-surface text-editorial-secondary hover:text-editorial-ivory disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson"
                 aria-label="الصفحة السابقة"
               >
                 <ChevronRight className="h-4 w-4" />
@@ -598,7 +598,7 @@ export const UsersPanel: React.FC<UsersPanelProps> = ({
                 type="button"
                 onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                 disabled={page >= totalPages}
-                className="min-h-11 min-w-11 flex items-center justify-center rounded-lg border border-border-subtle bg-surface text-editorial-secondary hover:text-editorial-ivory disabled:opacity-40"
+                className="min-h-11 min-w-11 flex items-center justify-center rounded-lg border border-border-subtle bg-surface text-editorial-secondary hover:text-editorial-ivory disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson"
                 aria-label="الصفحة التالية"
               >
                 <ChevronLeft className="h-4 w-4" />
