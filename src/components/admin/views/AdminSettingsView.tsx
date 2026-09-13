@@ -137,6 +137,14 @@ export const AdminSettingsView: React.FC<AdminSettingsViewProps> = ({ onNotice }
 
   const handleSavePricing = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (pricing.seasonUsd <= 0 || pricing.monthlyUsd <= 0 || pricing.annualUsd <= 0) {
+      onNotice?.('error', 'يجب أن تكون جميع الأسعار أرقاماً موجبة أكبر من الصفر (0.01 فأكثر)');
+      return;
+    }
+    if (pricing.seasonUsd > 10000 || pricing.monthlyUsd > 10000 || pricing.annualUsd > 10000) {
+      onNotice?.('error', 'الحد الأقصى لأي سعر هو 10,000 دولار');
+      return;
+    }
     setIsSavingPricing(true);
     try {
       const res = await fetch('/api/v1/admin/pricing', {
@@ -230,8 +238,9 @@ export const AdminSettingsView: React.FC<AdminSettingsViewProps> = ({ onNotice }
                 <div className="relative">
                   <input
                     type="number"
-                    step="0.1"
-                    min="0"
+                    step="0.01"
+                    min="0.01"
+                    max="10000"
                     value={pricing.seasonUsd}
                     onChange={(e) =>
                       setPricing({ ...pricing, seasonUsd: parseFloat(e.target.value) || 0 })
@@ -252,8 +261,9 @@ export const AdminSettingsView: React.FC<AdminSettingsViewProps> = ({ onNotice }
                 <div className="relative">
                   <input
                     type="number"
-                    step="0.5"
-                    min="0"
+                    step="0.01"
+                    min="0.01"
+                    max="10000"
                     value={pricing.monthlyUsd}
                     onChange={(e) =>
                       setPricing({ ...pricing, monthlyUsd: parseFloat(e.target.value) || 0 })
@@ -274,8 +284,9 @@ export const AdminSettingsView: React.FC<AdminSettingsViewProps> = ({ onNotice }
                 <div className="relative">
                   <input
                     type="number"
-                    step="1"
-                    min="0"
+                    step="0.01"
+                    min="0.01"
+                    max="10000"
                     value={pricing.annualUsd}
                     onChange={(e) =>
                       setPricing({ ...pricing, annualUsd: parseFloat(e.target.value) || 0 })

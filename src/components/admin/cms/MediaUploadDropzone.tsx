@@ -132,6 +132,25 @@ export const MediaUploadDropzone: React.FC<MediaUploadDropzoneProps> = ({
   const [audioDuration, setAudioDuration] = useState<string | null>(null);
   const audioPreviewRef = useRef<HTMLAudioElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const activeXhrRef = useRef<XMLHttpRequest | null>(null);
+
+  const abortUpload = () => {
+    if (activeXhrRef.current) {
+      activeXhrRef.current.abort();
+      activeXhrRef.current = null;
+    }
+    setIsUploading(false);
+    setUploadPercent(0);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (activeXhrRef.current) {
+        activeXhrRef.current.abort();
+        activeXhrRef.current = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     const audioEl = audioPreviewRef.current;
@@ -313,6 +332,7 @@ export const MediaUploadDropzone: React.FC<MediaUploadDropzoneProps> = ({
         try {
           await new Promise<void>((resolve, reject) => {
             const xhr = new XMLHttpRequest();
+            activeXhrRef.current = xhr;
             xhr.open('PUT', authData.uploadUrl);
 
             // ضبط ترويسة Content-Type لتطابق التوقيع بدقة
@@ -325,6 +345,7 @@ export const MediaUploadDropzone: React.FC<MediaUploadDropzoneProps> = ({
             };
 
             xhr.onload = () => {
+              activeXhrRef.current = null;
               if (xhr.status >= 200 && xhr.status < 300) {
                 resolve();
               } else {
@@ -333,7 +354,13 @@ export const MediaUploadDropzone: React.FC<MediaUploadDropzoneProps> = ({
             };
 
             xhr.onerror = () => {
+              activeXhrRef.current = null;
               reject(new Error('تعذر الاتصال بـ Cloudflare R2 (خطأ شبكة أو CORS)'));
+            };
+
+            xhr.onabort = () => {
+              activeXhrRef.current = null;
+              reject(new Error('تم إلغاء رفع الملف'));
             };
 
             xhr.send(file);
@@ -388,6 +415,7 @@ export const MediaUploadDropzone: React.FC<MediaUploadDropzoneProps> = ({
           formData.append('category', category);
 
           const xhr = new XMLHttpRequest();
+          activeXhrRef.current = xhr;
           xhr.open('POST', authData.fallbackUploadUrl);
 
           xhr.upload.onprogress = (e) => {
@@ -397,6 +425,7 @@ export const MediaUploadDropzone: React.FC<MediaUploadDropzoneProps> = ({
           };
 
           xhr.onload = () => {
+            activeXhrRef.current = null;
             try {
               const res = JSON.parse(xhr.responseText);
               if (xhr.status >= 200 && xhr.status < 300 && res.success) {
@@ -414,7 +443,16 @@ export const MediaUploadDropzone: React.FC<MediaUploadDropzoneProps> = ({
             }
           };
 
-          xhr.onerror = () => reject(new Error('فشل الاتصال بالخادم أثناء الرفع'));
+          xhr.onerror = () => {
+            activeXhrRef.current = null;
+            reject(new Error('فشل الاتصال بالخادم أثناء الرفع'));
+          };
+
+          xhr.onabort = () => {
+            activeXhrRef.current = null;
+            reject(new Error('تم إلغاء رفع الملف'));
+          };
+
           xhr.send(formData);
         });
       } else {
@@ -429,6 +467,8 @@ export const MediaUploadDropzone: React.FC<MediaUploadDropzoneProps> = ({
       }
       setIsUploading(false);
       setUploadError(err.message || 'حدث خطأ أثناء رفع الملف، يرجى المحاولة ثانية');
+    } finally {
+      activeXhrRef.current = null;
     }
   };
 
@@ -624,6 +664,20 @@ export const MediaUploadDropzone: React.FC<MediaUploadDropzoneProps> = ({
                   className="bg-gradient-to-r from-crimson to-crimson-bright h-full transition-all duration-150 ease-out"
                   style={{ width: `${uploadPercent}%` }}
                 />
+              </div>
+
+              <div className="pt-1">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    abortUpload();
+                  }}
+                  className="pointer-events-auto min-h-8 px-3 py-1 text-xs text-red-300 hover:text-white bg-red-950/60 hover:bg-red-900 border border-red-800/80 rounded-lg transition-colors inline-flex items-center gap-1.5 mx-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400"
+                >
+                  <X size={13} />
+                  <span>إلغاء الرفع</span>
+                </button>
               </div>
             </div>
           ) : (

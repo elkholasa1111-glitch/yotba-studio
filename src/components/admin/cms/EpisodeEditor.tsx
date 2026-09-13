@@ -139,6 +139,12 @@ export const EpisodeEditor: React.FC<EpisodeEditorProps> = ({
     if (!validate()) return;
     setSaving(true);
     try {
+      const isPolicyFree = Boolean(
+        series.freeEpisodesCount &&
+        Number(form.episodeNumber) > 0 &&
+        Number(form.episodeNumber) <= series.freeEpisodesCount
+      );
+
       const payload: Record<string, unknown> = {
         entity: 'episode',
         seasonId: season._id,
@@ -146,7 +152,6 @@ export const EpisodeEditor: React.FC<EpisodeEditorProps> = ({
         title: form.title.trim(),
         teaser: form.teaser.trim() || null,
         durationMs: form.durationMinutes.trim() ? Math.round(Number(form.durationMinutes) * 60000) : 0,
-        isFree: form.isFree,
         publishDate: form.publishDate ? new Date(form.publishDate).toISOString() : null,
         artworkOverride: form.artworkOverride.trim() || null,
         audioStorageKey: audioStorageKey.trim() || null,
@@ -155,6 +160,14 @@ export const EpisodeEditor: React.FC<EpisodeEditorProps> = ({
             ? audioUrl.trim()
             : null,
       };
+
+      if (episode) {
+        if (!isPolicyFree) {
+          payload.isFree = form.isFree;
+        }
+      } else {
+        payload.isFree = form.isFree;
+      }
 
       const res = episode
         ? await adminApi<{ success: boolean }>('/api/v1/admin/content', {
@@ -320,18 +333,39 @@ export const EpisodeEditor: React.FC<EpisodeEditorProps> = ({
           </div>
         </div>
 
-        <label className="flex items-center gap-3 min-h-11 cursor-pointer" aria-describedby="episode-free-hint">
-          <input
-            type="checkbox"
-            checked={form.isFree}
-            onChange={(e) => setField('isFree', e.target.checked)}
-            className="w-5 h-5 accent-[#A8202A]"
-          />
-          <span className="text-xs text-editorial-secondary">حلقة مجانية (مستقلة عن قاعدة أول N حلقة)</span>
-        </label>
-        <p id="episode-free-hint" className="text-[10px] text-editorial-muted">
-          الحلقات التي رقمها ≤ {series.freeEpisodesCount} تُفرض مجانية تلقائياً بغض النظر عن هذا الخيار.
-        </p>
+        {(() => {
+          const isPolicyFree = Boolean(
+            series.freeEpisodesCount &&
+            Number(form.episodeNumber) > 0 &&
+            Number(form.episodeNumber) <= series.freeEpisodesCount
+          );
+          return (
+            <div>
+              <label
+                className={`flex items-center gap-3 min-h-11 ${isPolicyFree ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'}`}
+                aria-describedby="episode-free-hint"
+              >
+                <input
+                  type="checkbox"
+                  checked={isPolicyFree || form.isFree}
+                  disabled={isPolicyFree}
+                  onChange={(e) => setField('isFree', e.target.checked)}
+                  className="w-5 h-5 accent-[#A8202A]"
+                />
+                <span className="text-xs text-editorial-secondary">
+                  {isPolicyFree
+                    ? `حلقة مجانية تلقائياً (ضمن أول ${series.freeEpisodesCount} حلقات مجانية للمسلسل)`
+                    : 'حلقة مجانية (مستقلة عن قاعدة أول N حلقة)'}
+                </span>
+              </label>
+              <p id="episode-free-hint" className="text-[10px] text-editorial-muted">
+                {isPolicyFree
+                  ? `هذه الحلقة رقم (${form.episodeNumber}) مشمولة بقاعدة المسلسل لأول ${series.freeEpisodesCount} حلقات مجانية.`
+                  : `الحلقات التي رقمها ≤ ${series.freeEpisodesCount || 0} تُفرض مجانية تلقائياً بغض النظر عن هذا الخيار.`}
+              </p>
+            </div>
+          );
+        })()}
 
         {serverError && (
           <p role="alert" className="p-3 bg-red-950/40 border border-red-800 text-red-300 text-xs rounded-lg">

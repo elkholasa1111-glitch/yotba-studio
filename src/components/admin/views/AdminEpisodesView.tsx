@@ -75,6 +75,17 @@ export const AdminEpisodesView: React.FC<Props> = ({
   const previewAudioRef = React.useRef<HTMLAudioElement | null>(null);
 
   const handleToggleFree = async (episode: AdminEpisodeDTO) => {
+    const isPolicyFree = Boolean(
+      currentSeries &&
+      typeof currentSeries.freeEpisodesCount === 'number' &&
+      currentSeries.freeEpisodesCount > 0 &&
+      episode.episodeNumber <= currentSeries.freeEpisodesCount
+    );
+    if (isPolicyFree) {
+      showNotice('error', `هذه الحلقة مشمولة تلقائياً بسياسة أول ${currentSeries.freeEpisodesCount} حلقات مجانية للمسلسل`);
+      return;
+    }
+
     setTogglingFreeId(episode._id);
     const nextFree = !episode.isFree;
     try {
@@ -295,30 +306,52 @@ export const AdminEpisodesView: React.FC<Props> = ({
                       </td>
 
                       <td className="p-3.5">
-                        <button
-                          type="button"
-                          onClick={() => handleToggleFree(ep)}
-                          disabled={togglingFreeId === ep._id}
-                          className={`min-h-11 px-2.5 py-1 rounded-lg border text-[11px] font-bold flex items-center gap-1.5 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson ${
-                            ep.isFree
-                              ? 'bg-emerald-950/40 border-emerald-800/60 text-emerald-400 hover:bg-emerald-900/50'
-                              : 'bg-surface-elevated border-border-subtle text-editorial-muted hover:text-editorial-ivory'
-                          }`}
-                          title="انقر لتبديل الحالة بين مجانية ومدفوعة"
-                          aria-label={ep.isFree ? `إغلاق مجانية الحلقة ${ep.episodeNumber}` : `فتح مجانية الحلقة ${ep.episodeNumber}`}
-                        >
-                          {ep.isFree ? (
-                            <>
-                              <Unlock size={12} />
-                              <span>مجانية للجميع</span>
-                            </>
-                          ) : (
-                            <>
-                              <Lock size={12} />
-                              <span>مقفلة (شراء)</span>
-                            </>
-                          )}
-                        </button>
+                        {(() => {
+                          const isPolicyFree = Boolean(
+                            currentSeries &&
+                            typeof currentSeries.freeEpisodesCount === 'number' &&
+                            currentSeries.freeEpisodesCount > 0 &&
+                            ep.episodeNumber <= currentSeries.freeEpisodesCount
+                          );
+                          return (
+                            <button
+                              type="button"
+                              onClick={() => handleToggleFree(ep)}
+                              disabled={togglingFreeId === ep._id || isPolicyFree}
+                              className={`min-h-11 px-2.5 py-1 rounded-lg border text-[11px] font-bold flex items-center gap-1.5 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson ${
+                                isPolicyFree
+                                  ? 'bg-emerald-950/20 border-emerald-800/40 text-emerald-400/90 cursor-not-allowed'
+                                  : ep.isFree
+                                  ? 'bg-emerald-950/40 border-emerald-800/60 text-emerald-400 hover:bg-emerald-900/50'
+                                  : 'bg-surface-elevated border-border-subtle text-editorial-muted hover:text-editorial-ivory'
+                              }`}
+                              title={
+                                isPolicyFree
+                                  ? `مجانية تلقائياً وفقاً لسياسة أول ${currentSeries.freeEpisodesCount} حلقات مجانية للمسلسل`
+                                  : 'انقر لتبديل الحالة بين مجانية ومدفوعة'
+                              }
+                              aria-label={
+                                isPolicyFree
+                                  ? `الحلقة ${ep.episodeNumber} مجانية تلقائياً وفقاً لسياسة المسلسل`
+                                  : ep.isFree
+                                  ? `إغلاق مجانية الحلقة ${ep.episodeNumber}`
+                                  : `فتح مجانية الحلقة ${ep.episodeNumber}`
+                              }
+                            >
+                              {ep.isFree || isPolicyFree ? (
+                                <>
+                                  <Unlock size={12} />
+                                  <span>{isPolicyFree ? 'مجانية (سياسة)' : 'مجانية للجميع'}</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Lock size={12} />
+                                  <span>مقفلة (شراء)</span>
+                                </>
+                              )}
+                            </button>
+                          );
+                        })()}
                       </td>
 
                       <td className="p-3.5">
@@ -427,29 +460,52 @@ export const AdminEpisodesView: React.FC<Props> = ({
 
                   <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-border-subtle/50">
                     <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => handleToggleFree(ep)}
-                        disabled={togglingFreeId === ep._id}
-                        className={`min-h-11 px-2.5 py-1 rounded-lg border text-xs font-bold flex items-center gap-1.5 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson ${
-                          ep.isFree
-                            ? 'bg-emerald-950/40 border-emerald-800/60 text-emerald-400 hover:bg-emerald-900/50'
-                            : 'bg-surface-elevated border-border-subtle text-editorial-muted hover:text-editorial-ivory'
-                        }`}
-                        aria-label={ep.isFree ? `إغلاق مجانية الحلقة ${ep.episodeNumber}` : `فتح مجانية الحلقة ${ep.episodeNumber}`}
-                      >
-                        {ep.isFree ? (
-                          <>
-                            <Unlock size={12} />
-                            <span>مجانية</span>
-                          </>
-                        ) : (
-                          <>
-                            <Lock size={12} />
-                            <span>مقفلة</span>
-                          </>
-                        )}
-                      </button>
+                      {(() => {
+                        const isPolicyFree = Boolean(
+                          currentSeries &&
+                          typeof currentSeries.freeEpisodesCount === 'number' &&
+                          currentSeries.freeEpisodesCount > 0 &&
+                          ep.episodeNumber <= currentSeries.freeEpisodesCount
+                        );
+                        return (
+                          <button
+                            type="button"
+                            onClick={() => handleToggleFree(ep)}
+                            disabled={togglingFreeId === ep._id || isPolicyFree}
+                            className={`min-h-11 px-2.5 py-1 rounded-lg border text-xs font-bold flex items-center gap-1.5 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson ${
+                              isPolicyFree
+                                ? 'bg-emerald-950/20 border-emerald-800/40 text-emerald-400/90 cursor-not-allowed'
+                                : ep.isFree
+                                ? 'bg-emerald-950/40 border-emerald-800/60 text-emerald-400 hover:bg-emerald-900/50'
+                                : 'bg-surface-elevated border-border-subtle text-editorial-muted hover:text-editorial-ivory'
+                            }`}
+                            title={
+                              isPolicyFree
+                                ? `مجانية تلقائياً وفقاً لسياسة أول ${currentSeries.freeEpisodesCount} حلقات مجانية للمسلسل`
+                                : 'انقر لتبديل الحالة بين مجانية ومدفوعة'
+                            }
+                            aria-label={
+                              isPolicyFree
+                                ? `الحلقة ${ep.episodeNumber} مجانية تلقائياً وفقاً لسياسة المسلسل`
+                                : ep.isFree
+                                ? `إغلاق مجانية الحلقة ${ep.episodeNumber}`
+                                : `فتح مجانية الحلقة ${ep.episodeNumber}`
+                            }
+                          >
+                            {ep.isFree || isPolicyFree ? (
+                              <>
+                                <Unlock size={12} />
+                                <span>{isPolicyFree ? 'مجانية (سياسة)' : 'مجانية'}</span>
+                              </>
+                            ) : (
+                              <>
+                                <Lock size={12} />
+                                <span>مقفلة</span>
+                              </>
+                            )}
+                          </button>
+                        );
+                      })()}
 
                       <button
                         type="button"

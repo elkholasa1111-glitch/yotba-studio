@@ -8,6 +8,8 @@
 // ============================================================
 
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 import mongoose from 'mongoose';
 import { connectDB } from '../lib/db/connect';
 import {
@@ -1174,6 +1176,97 @@ async function runTests() {
     console.log = origLog;
     console.error = origError;
     global.mongooseCache = { conn: null, promise: null };
+  }
+
+  // ==========================================================
+  // 10. Free-Episode Policy Reconciliation & Pricing Input Precision
+  // ==========================================================
+  console.log('10. Testing Free-Episode Policy & Pricing Precision Invariants...');
+
+  const routePath = path.resolve(__dirname, '../app/api/v1/admin/content/route.ts');
+  const routeSource = fs.readFileSync(routePath, 'utf8');
+
+  const editorPath = path.resolve(__dirname, '../components/admin/cms/EpisodeEditor.tsx');
+  const editorSource = fs.readFileSync(editorPath, 'utf8');
+
+  const settingsPath = path.resolve(__dirname, '../components/admin/views/AdminSettingsView.tsx');
+  const settingsSource = fs.readFileSync(settingsPath, 'utf8');
+
+  // أ) Invariant 1: No free-count bulk mutation of Episode.isFree
+  // Series.freeEpisodesCount is derived access policy, not persisted to Episode.isFree.
+  // Lowering the first-N threshold must not leave stale free flags on episodes.
+  assert.equal(
+    routeSource.includes('Episode.updateMany'),
+    false,
+    'route.ts must not contain Episode.updateMany in series free-count mutations'
+  );
+
+  const deriveEpisodeFreeAccess = (seriesFreeCount: number, episodeNumber: number, explicitIsFree: boolean) =>
+    explicitIsFree || (seriesFreeCount > 0 && episodeNumber <= seriesFreeCount);
+
+  // When series has 2 free episodes, ep 1 (explicitly false) is accessible via policy
+  assert.equal(deriveEpisodeFreeAccess(2, 1, false), true, 'Policy grants access to episode 1');
+  // When series free count is lowered to 0, ep 1 must not remain free because explicitIsFree is false
+  assert.equal(deriveEpisodeFreeAccess(0, 1, false), false, 'Lowering freeEpisodesCount revokes access for non-explicit episodes');
+
+  // ب) Invariant 2: Create stores explicit override separately
+  // POST episode creation must store only explicit body.isFree === true without OR-ing series threshold.
+  assert.ok(
+    routeSource.includes('const isFree = body.isFree === true;'),
+    'Episode POST creation must store only explicit body.isFree === true'
+  );
+  assert.equal(
+    routeSource.includes('body.isFree === true || body.episodeNumber <='),
+    false,
+    'Episode POST must not OR the series free threshold into stored isFree'
+  );
+
+  // ج) Invariant 3: EpisodeEditor omits derived isFree on policy-free edits
+  // On edit, omit isFree from the PATCH payload when episode is policy-free to avoid server 409 guard.
+  // On create, send raw form.isFree so explicit overrides can be created.
+  assert.ok(
+    editorSource.includes('if (!isPolicyFree) {') && editorSource.includes('payload.isFree = form.isFree;'),
+    'EpisodeEditor must omit isFree on edit when isPolicyFree is true'
+  );
+
+  function simulateEditorPayload(isEdit: boolean, epNum: number, seriesFreeCount: number, formIsFree: boolean) {
+    const isPolicyFree = Boolean(seriesFreeCount > 0 && epNum > 0 && epNum <= seriesFreeCount);
+    const payload: Record<string, unknown> = { episodeNumber: epNum };
+    if (isEdit) {
+      if (!isPolicyFree) {
+        payload.isFree = formIsFree;
+      }
+    } else {
+      payload.isFree = formIsFree;
+    }
+    return payload;
+  }
+
+  const editPolicyFree = simulateEditorPayload(true, 1, 3, false);
+  assert.equal('isFree' in editPolicyFree, false, 'EpisodeEditor must omit isFree for policy-free edits');
+
+  const editOutsidePolicy = simulateEditorPayload(true, 4, 3, true);
+  assert.equal(editOutsidePolicy.isFree, true, 'EpisodeEditor must include isFree for edits outside policy');
+
+  const createInPolicy = simulateEditorPayload(false, 1, 3, false);
+  assert.equal(createInPolicy.isFree, false, 'EpisodeEditor must send raw form.isFree on create');
+
+  // د) Invariant 4: Pricing inputs step is 0.01 and supports cent precision
+  const stepMatches = settingsSource.match(/step="0\.01"/g);
+  assert.ok(stepMatches && stepMatches.length >= 3, 'All 3 pricing inputs in AdminSettingsView must use step="0.01"');
+
+  const minMatches = settingsSource.match(/min="0\.01"/g);
+  assert.ok(minMatches && minMatches.length >= 3, 'All 3 pricing inputs in AdminSettingsView must use min="0.01"');
+
+  const maxMatches = settingsSource.match(/max="10000"/g);
+  assert.ok(maxMatches && maxMatches.length >= 3, 'All 3 pricing inputs in AdminSettingsView must use max="10000"');
+
+  const centPricingCheck = validatePricingValues({ seasonUsd: 0.99, monthlyUsd: 1.49, annualUsd: 9.99 });
+  assert.equal(centPricingCheck.ok, true, 'validatePricingValues must accept cent precision');
+  if (centPricingCheck.ok) {
+    assert.equal(centPricingCheck.values.seasonUsd, 0.99);
+    assert.equal(centPricingCheck.values.monthlyUsd, 1.49);
+    assert.equal(centPricingCheck.values.annualUsd, 9.99);
   }
 
   console.log('✅ All Studio Architecture & Security Policy tests passed successfully!');

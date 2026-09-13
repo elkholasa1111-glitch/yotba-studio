@@ -459,10 +459,8 @@ export async function POST(req: Request) {
       });
       if (duplicate) return jsonError('يوجد حلقة بنفس الرقم في هذا الموسم', 409);
 
-      // سياسة أول N حلقات مجانية: الحلقة ضمن النطاق تُفرض مجانية دائماً
-      const parentSeries = await Series.findById(season.seriesId).select('freeEpisodesCount').lean();
-      const freeCount = Number((parentSeries as any)?.freeEpisodesCount || 0);
-      const isFree = body.isFree === true || body.episodeNumber <= freeCount;
+      // حفظ التجاوز الصريح فقط؛ السياسة تشتق في الواجهة والمنصة العامة
+      const isFree = body.isFree === true;
 
       let audioStorageKey: string | undefined;
       if (body.audioStorageKey !== undefined && body.audioStorageKey !== null && body.audioStorageKey !== '' && typeof body.audioStorageKey !== 'string') {
@@ -672,7 +670,7 @@ export async function PATCH(req: Request) {
       let publishAction: 'PUBLISH_SERIES' | 'UNPUBLISH_SERIES' | null = null;
       if (body.published !== undefined) {
         if (typeof body.published !== 'boolean') return jsonError('قيمة النشر غير صالحة');
-        updates.publishedAt = body.published ? new Date() : null;
+        updates.publishedAt = body.published ? (series.publishedAt || new Date()) : null;
         publishAction = body.published ? 'PUBLISH_SERIES' : 'UNPUBLISH_SERIES';
       }
 
@@ -892,6 +890,11 @@ export async function PATCH(req: Request) {
 
       if (Object.keys(updates).length === 0) return jsonError('لا توجد حقول للتحديث', 400);
 
+      if (episode.seasonNumber === undefined || episode.seasonNumber === null) {
+        const parentSeason: any = await Season.findById(episode.seasonId).select('seasonNumber').lean();
+        episode.seasonNumber = typeof parentSeason?.seasonNumber === 'number' ? parentSeason.seasonNumber : 1;
+      }
+
       if (updates.episodeNumber !== undefined && updates.episodeNumber !== episode.episodeNumber) {
         const duplicate = await Episode.exists({
           seriesId: episode.seriesId,
@@ -909,12 +912,11 @@ export async function PATCH(req: Request) {
         (episode as any)[key] = value;
       }
 
-      if (episode.seasonNumber === undefined || episode.seasonNumber === null) {
-        const parentSeason: any = await Season.findById(episode.seasonId).select('seasonNumber').lean();
-        episode.seasonNumber = typeof parentSeason?.seasonNumber === 'number' ? parentSeason.seasonNumber : 1;
-      }
-
       await episode.save();
+
+      if (updates.durationMs !== undefined) {
+        await syncSeriesCounters(episode.seriesId.toString());
+      }
 
       const storageCleanup = await cleanupContentMedia(replacedMediaKeys);
 

@@ -252,6 +252,10 @@ export const AdminTranscriptsView: React.FC<Props> = ({
 
   const handleSaveTranscript = async () => {
     if (!currentEpisode?._id) return;
+    if (segments.length === 0) {
+      showNotice('error', 'يجب إضافة مقطع نصي واحد على الأقل لحفظ النص المتزامن');
+      return;
+    }
     setIsSaving(true);
     try {
       const res = await adminApi<{ success: boolean }>('/api/v1/admin/content', {
@@ -384,7 +388,8 @@ export const AdminTranscriptsView: React.FC<Props> = ({
           <button
             type="button"
             onClick={handleSaveTranscript}
-            disabled={isSaving}
+            disabled={isSaving || segments.length === 0}
+            title={segments.length === 0 ? 'أضف مقطعاً واحداً على الأقل لحفظ النص' : 'حفظ النص المتزامن'}
             className="min-h-11 px-6 rounded-xl bg-crimson hover:bg-crimson-bright text-white text-xs font-bold flex items-center gap-2 shadow-halo transition-transform active:scale-95 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson"
           >
             {isSaving ? (
