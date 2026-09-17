@@ -25,11 +25,13 @@ import {
   RefreshCw,
   KeyRound,
   LogOut,
+  Tags,
 } from 'lucide-react';
 
 import type { AdminSeriesDTO } from './cms/shared';
 import { AdminDashboardOverview } from './views/AdminDashboardOverview';
 import { AdminSeriesView } from './views/AdminSeriesView';
+import AdminCategoriesView from './views/AdminCategoriesView';
 import { AdminSeasonsView } from './views/AdminSeasonsView';
 import { AdminEpisodesView } from './views/AdminEpisodesView';
 import { AdminMediaView } from './views/AdminMediaView';
@@ -53,7 +55,8 @@ export type AdminSection =
   | 'entitlements'
   | 'comments'
   | 'homepage'
-  | 'settings';
+  | 'settings'
+  | 'categories';
 
 interface FunnelStep {
   stage: string;
@@ -103,6 +106,7 @@ const NAV_GROUPS: NavGroup[] = [
       { id: 'episodes', label: 'الحلقات والصوت', icon: Radio },
       { id: 'transcripts', label: 'النصوص', icon: Subtitles },
       { id: 'media', label: 'الوسائط', icon: FolderUp },
+      { id: 'categories', label: 'التصنيفات', icon: Tags },
     ],
   },
   {
@@ -144,7 +148,10 @@ export const AdminDashboardView: React.FC = () => {
     useState<AdminUserDTO | null>(null);
 
   // Toast / Notices
-  const [notice, setNotice] = useState<{ type: 'success' | 'error'; msg: string } | null>(null);
+  const [notice, setNotice] = useState<{
+    type: 'success' | 'error';
+    msg: string;
+  } | null>(null);
 
   const showNotice = useCallback((type: 'success' | 'error', msg: string) => {
     setNotice({ type, msg });
@@ -198,7 +205,9 @@ export const AdminDashboardView: React.FC = () => {
     setIsRefreshing(true);
     setDataError(null);
 
-    const readJson = async (url: string): Promise<{
+    const readJson = async (
+      url: string,
+    ): Promise<{
       ok: boolean;
       data: Record<string, unknown> | null;
     }> => {
@@ -232,7 +241,11 @@ export const AdminDashboardView: React.FC = () => {
         failedSources.push('المحتوى');
       }
 
-      if (analyticsRes.ok && analyticsRes.data?.totals && Array.isArray(analyticsRes.data.funnel)) {
+      if (
+        analyticsRes.ok &&
+        analyticsRes.data?.totals &&
+        Array.isArray(analyticsRes.data.funnel)
+      ) {
         setTotals(analyticsRes.data.totals as unknown as Totals);
         setFunnel(analyticsRes.data.funnel as unknown as FunnelStep[]);
       } else {
@@ -249,7 +262,7 @@ export const AdminDashboardView: React.FC = () => {
         setDataError(
           failedSources.length === 3
             ? 'تعذر تحميل بيانات لوحة التحكم حالياً. تحقق من الجلسة واتصال الخدمات ثم أعد المحاولة.'
-            : `تعذر تحميل بعض البيانات (${failedSources.join('، ')}). يمكنك إعادة المحاولة دون فقد التعديلات.`
+            : `تعذر تحميل بعض البيانات (${failedSources.join('، ')}). يمكنك إعادة المحاولة دون فقد التعديلات.`,
         );
       }
     } finally {
@@ -271,7 +284,7 @@ export const AdminDashboardView: React.FC = () => {
         setNavEpisodeId(null);
       }
     },
-    []
+    [],
   );
 
   // Seamless navigation handlers
@@ -289,7 +302,11 @@ export const AdminDashboardView: React.FC = () => {
     navigateToSection('episodes', true);
   };
 
-  const handleManageTranscript = (seriesId: string, seasonId: string, episodeId: string) => {
+  const handleManageTranscript = (
+    seriesId: string,
+    seasonId: string,
+    episodeId: string,
+  ) => {
     setNavSeriesId(seriesId);
     setNavSeasonId(seasonId);
     setNavEpisodeId(episodeId);
@@ -299,14 +316,20 @@ export const AdminDashboardView: React.FC = () => {
   const handleSelectUserFromUsersList = (user: AdminUserDTO) => {
     setSelectedUserForEntitlements(user);
     navigateToSection('entitlements');
-    showNotice('success', `تم تحديد المستخدم "${user.displayName}" لإدارة استحقاقاته`);
+    showNotice(
+      'success',
+      `تم تحديد المستخدم "${user.displayName}" لإدارة استحقاقاته`,
+    );
   };
 
   // Active Series helper for Pipeline breadcrumb
   const currentNavSeries = seriesList.find((s) => s._id === navSeriesId);
-  const isContentPipelineSection = ['series', 'seasons', 'episodes', 'transcripts'].includes(
-    activeSection
-  );
+  const isContentPipelineSection = [
+    'series',
+    'seasons',
+    'episodes',
+    'transcripts',
+  ].includes(activeSection);
 
   return (
     <div className="min-h-screen bg-obsidian text-editorial-ivory font-ui flex flex-col antialiased">
@@ -321,7 +344,11 @@ export const AdminDashboardView: React.FC = () => {
             aria-expanded={isMobileMenuOpen}
             aria-controls="admin-mobile-navigation"
           >
-            {isMobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+            {isMobileMenuOpen ? (
+              <X className="w-5 h-5" />
+            ) : (
+              <Menu className="w-5 h-5" />
+            )}
           </button>
 
           <Link
@@ -333,7 +360,10 @@ export const AdminDashboardView: React.FC = () => {
             </span>
             <div>
               <h1 className="text-sm font-black font-display text-editorial-ivory leading-tight">
-                يُتبع... <span className="text-crimson font-ui text-[11px] font-bold">الاستوديو</span>
+                يُتبع...{' '}
+                <span className="text-crimson font-ui text-[11px] font-bold">
+                  الاستوديو
+                </span>
               </h1>
               <p className="text-[10px] text-editorial-muted">إدارة المحتوى</p>
             </div>
@@ -431,7 +461,9 @@ export const AdminDashboardView: React.FC = () => {
                           }`}
                         />
                         <span className="truncate flex-1">{item.label}</span>
-                        {isActive && <ChevronLeft className="w-3.5 h-3.5 shrink-0 opacity-70" />}
+                        {isActive && (
+                          <ChevronLeft className="w-3.5 h-3.5 shrink-0 opacity-70" />
+                        )}
                       </button>
                     );
                   })}
@@ -443,7 +475,10 @@ export const AdminDashboardView: React.FC = () => {
 
         {/* Mobile Navigation Drawer */}
         {isMobileMenuOpen && (
-          <div className="lg:hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex" role="presentation">
+          <div
+            className="lg:hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex"
+            role="presentation"
+          >
             <div
               id="admin-mobile-navigation"
               role="dialog"
@@ -452,7 +487,10 @@ export const AdminDashboardView: React.FC = () => {
               className="w-4/5 max-w-xs bg-surface border-l border-border-subtle h-full flex flex-col p-4 space-y-4 overflow-y-auto animate-fade-in text-right"
             >
               <div className="flex items-center justify-between border-b border-border-subtle pb-3">
-                <span id="admin-mobile-navigation-title" className="text-xs font-bold text-editorial-ivory">
+                <span
+                  id="admin-mobile-navigation-title"
+                  className="text-xs font-bold text-editorial-ivory"
+                >
                   أقسام لوحة التحكم
                 </span>
                 <button
@@ -476,7 +514,8 @@ export const AdminDashboardView: React.FC = () => {
                         const Icon = item.icon;
                         const isActive =
                           activeSection === item.id ||
-                          (item.id === 'users' && activeSection === 'entitlements');
+                          (item.id === 'users' &&
+                            activeSection === 'entitlements');
 
                         return (
                           <button
@@ -519,7 +558,9 @@ export const AdminDashboardView: React.FC = () => {
             {isContentPipelineSection && (
               <div className="bg-surface/60 border border-border-subtle rounded-xl p-3.5 flex flex-col md:flex-row items-start md:items-center justify-between gap-3 text-xs">
                 <div className="flex items-center gap-2 text-editorial-muted">
-                  <span className="font-bold text-editorial-ivory">مسار النشر</span>
+                  <span className="font-bold text-editorial-ivory">
+                    مسار النشر
+                  </span>
                   {currentNavSeries && (
                     <span
                       className="bg-crimson/15 text-crimson px-2 py-0.5 rounded font-bold truncate max-w-[160px] sm:max-w-xs"
@@ -543,7 +584,10 @@ export const AdminDashboardView: React.FC = () => {
                   >
                     1. المسلسلات
                   </button>
-                  <ChevronLeft className="w-3.5 h-3.5 text-editorial-muted shrink-0" aria-hidden="true" />
+                  <ChevronLeft
+                    className="w-3.5 h-3.5 text-editorial-muted shrink-0"
+                    aria-hidden="true"
+                  />
                   <button
                     type="button"
                     onClick={() => navigateToSection('seasons', true)}
@@ -555,7 +599,10 @@ export const AdminDashboardView: React.FC = () => {
                   >
                     2. المواسم
                   </button>
-                  <ChevronLeft className="w-3.5 h-3.5 text-editorial-muted shrink-0" aria-hidden="true" />
+                  <ChevronLeft
+                    className="w-3.5 h-3.5 text-editorial-muted shrink-0"
+                    aria-hidden="true"
+                  />
                   <button
                     type="button"
                     onClick={() => navigateToSection('episodes', true)}
@@ -567,7 +614,10 @@ export const AdminDashboardView: React.FC = () => {
                   >
                     3. الحلقات
                   </button>
-                  <ChevronLeft className="w-3.5 h-3.5 text-editorial-muted shrink-0" aria-hidden="true" />
+                  <ChevronLeft
+                    className="w-3.5 h-3.5 text-editorial-muted shrink-0"
+                    aria-hidden="true"
+                  />
                   <button
                     type="button"
                     onClick={() => navigateToSection('transcripts', true)}
@@ -589,7 +639,10 @@ export const AdminDashboardView: React.FC = () => {
                 className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-amber-700/50 bg-amber-950/30 p-4 text-xs text-amber-100"
               >
                 <div className="flex items-start gap-2.5">
-                  <AlertCircle className="w-4 h-4 shrink-0 text-amber-300 mt-0.5" aria-hidden="true" />
+                  <AlertCircle
+                    className="w-4 h-4 shrink-0 text-amber-300 mt-0.5"
+                    aria-hidden="true"
+                  />
                   <div className="space-y-0.5">
                     <p className="font-bold">البيانات غير مكتملة</p>
                     <p className="text-amber-200/80">{dataError}</p>
@@ -601,8 +654,13 @@ export const AdminDashboardView: React.FC = () => {
                   disabled={isRefreshing}
                   className="min-h-11 px-3 rounded-lg border border-amber-600/50 bg-amber-950/40 hover:bg-amber-900/50 text-amber-100 font-semibold inline-flex items-center justify-center gap-1.5 disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
                 >
-                  <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} aria-hidden="true" />
-                  <span>{isRefreshing ? 'جارٍ التحديث...' : 'إعادة المحاولة'}</span>
+                  <RefreshCw
+                    className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`}
+                    aria-hidden="true"
+                  />
+                  <span>
+                    {isRefreshing ? 'جارٍ التحديث...' : 'إعادة المحاولة'}
+                  </span>
                 </button>
               </div>
             )}
@@ -610,7 +668,9 @@ export const AdminDashboardView: React.FC = () => {
             {isLoading ? (
               <div className="py-32 flex flex-col items-center justify-center gap-3">
                 <Loader2 className="w-8 h-8 animate-spin text-crimson" />
-                <p className="text-xs text-editorial-muted">جارٍ تحميل بيانات لوحة الإدارة...</p>
+                <p className="text-xs text-editorial-muted">
+                  جارٍ تحميل بيانات لوحة الإدارة...
+                </p>
               </div>
             ) : (
               <>
@@ -638,6 +698,12 @@ export const AdminDashboardView: React.FC = () => {
                   />
                 )}
 
+                {/* Categories Manager */}
+
+                {activeSection === 'categories' && (
+                  <AdminCategoriesView showNotice={showNotice} />
+                )}
+
                 {/* 3. Seasons Manager */}
                 {activeSection === 'seasons' && (
                   <AdminSeasonsView
@@ -662,7 +728,9 @@ export const AdminDashboardView: React.FC = () => {
                 )}
 
                 {/* 5. Cloudflare R2 Media Stage */}
-                {activeSection === 'media' && <AdminMediaView showNotice={showNotice} />}
+                {activeSection === 'media' && (
+                  <AdminMediaView showNotice={showNotice} />
+                )}
 
                 {/* 6. Transcripts Sync Editor */}
                 {activeSection === 'transcripts' && (
@@ -680,7 +748,9 @@ export const AdminDashboardView: React.FC = () => {
                 {activeSection === 'users' && (
                   <div className="space-y-6">
                     <UsersPanel
-                      onSelectUserForEntitlements={handleSelectUserFromUsersList}
+                      onSelectUserForEntitlements={
+                        handleSelectUserFromUsersList
+                      }
                       onNotice={showNotice}
                     />
                   </div>
@@ -712,18 +782,20 @@ export const AdminDashboardView: React.FC = () => {
                 )}
 
                 {/* 8. Comments Moderation */}
-                {activeSection === 'comments' && <AdminCommentsView onNotice={showNotice} />}
+                {activeSection === 'comments' && (
+                  <AdminCommentsView onNotice={showNotice} />
+                )}
 
                 {/* 9. Homepage Sections */}
                 {activeSection === 'homepage' && (
                   <div className="space-y-6">
                     <div className="border-b border-border-subtle pb-4">
-                        <h2 className="text-xl font-black font-display text-editorial-ivory flex items-center gap-2">
-                          <LayoutGrid className="w-5 h-5 text-crimson" />
-                          الصفحة الرئيسية
-                        </h2>
-                        <p className="text-xs text-editorial-secondary mt-1">
-                          رتّب الأقسام واختر محتوى كل قسم.
+                      <h2 className="text-xl font-black font-display text-editorial-ivory flex items-center gap-2">
+                        <LayoutGrid className="w-5 h-5 text-crimson" />
+                        الصفحة الرئيسية
+                      </h2>
+                      <p className="text-xs text-editorial-secondary mt-1">
+                        رتّب الأقسام واختر محتوى كل قسم.
                       </p>
                     </div>
                     <HomepagePanel onNotice={showNotice} />
@@ -731,7 +803,9 @@ export const AdminDashboardView: React.FC = () => {
                 )}
 
                 {/* 10. Platform Settings & Health */}
-                {activeSection === 'settings' && <AdminSettingsView onNotice={showNotice} />}
+                {activeSection === 'settings' && (
+                  <AdminSettingsView onNotice={showNotice} />
+                )}
               </>
             )}
           </div>

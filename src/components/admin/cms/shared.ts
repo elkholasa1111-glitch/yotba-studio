@@ -44,6 +44,7 @@ export interface AdminSeriesDTO {
   hook: string;
   description: string;
   genres: string[];
+  categoryIds: string[];
   contentRating: ContentRating;
   contentWarnings: string[];
   productionYear: number;
