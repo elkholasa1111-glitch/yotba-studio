@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { ModalDialog } from './ModalDialog';
 import { adminApi, AdminSeriesDTO } from './shared';
@@ -13,6 +13,13 @@ interface SeriesEditorProps {
   showNotice: (type: 'success' | 'error', msg: string) => void;
 }
 
+interface CategoryOption {
+  _id: string;
+  nameAr: string;
+  slug: string;
+  isActive: boolean;
+}
+
 interface SeriesFormState {
   title: string;
   slug: string;
@@ -22,6 +29,7 @@ interface SeriesFormState {
   heroArtworkUrl: string;
   shareVideoUrl: string;
   genresText: string;
+  categoryIds: string[];
   contentWarningsText: string;
   contentRating: AdminSeriesDTO['contentRating'];
   productionYear: string;
@@ -41,6 +49,7 @@ function initialState(series: AdminSeriesDTO | null): SeriesFormState {
     heroArtworkUrl: series?.heroArtworkUrl ?? '',
     shareVideoUrl: series?.shareVideoUrl ?? '',
     genresText: series?.genres.join('، ') ?? '',
+    categoryIds: series?.categoryIds ?? [],
     contentWarningsText: series?.contentWarnings.join('، ') ?? '',
     contentRating: series?.contentRating ?? 'PG13',
     productionYear: String(series?.productionYear ?? new Date().getFullYear()),
@@ -71,20 +80,57 @@ const inputClass =
   'w-full min-h-11 bg-surface-elevated border border-border-subtle rounded-lg p-2.5 text-xs text-editorial-ivory focus:outline-none focus:border-crimson focus-visible:ring-2 focus-visible:ring-crimson-glow';
 const labelClass = 'text-xs text-editorial-secondary block mb-1';
 const errorClass = 'text-[10px] text-red-400 mt-1';
-const detailsClass = 'border border-border-subtle rounded-lg bg-surface-elevated/40';
+const detailsClass =
+  'border border-border-subtle rounded-lg bg-surface-elevated/40';
 const summaryClass =
   'cursor-pointer select-none px-4 py-3 text-xs font-bold text-editorial-ivory focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson-glow rounded-lg';
 
-export const SeriesEditor: React.FC<SeriesEditorProps> = ({ series, onClose, onSaved, showNotice }) => {
+export const SeriesEditor: React.FC<SeriesEditorProps> = ({
+  series,
+  onClose,
+  onSaved,
+  showNotice,
+}) => {
   const initial = useMemo(() => initialState(series), [series]);
   const [form, setForm] = useState<SeriesFormState>(initial);
   const [autoCreateSeason1, setAutoCreateSeason1] = useState(true);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [serverError, setServerError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [categories, setCategories] = useState<CategoryOption[]>([]);
+  const [categoriesLoading, setCategoriesLoading] = useState(true);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadCategories = async () => {
+      const result = await adminApi<{ categories: CategoryOption[] }>(
+        '/api/v1/admin/categories',
+      );
+
+      if (isMounted && result.ok) {
+        setCategories(
+          Array.isArray(result.data.categories) ? result.data.categories : [],
+        );
+      }
+
+      if (isMounted) {
+        setCategoriesLoading(false);
+      }
+    };
+
+    loadCategories();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const isDirty = JSON.stringify(form) !== JSON.stringify(initial);
-  const setField = <K extends keyof SeriesFormState>(key: K, value: SeriesFormState[K]) => {
+  const setField = <K extends keyof SeriesFormState>(
+    key: K,
+    value: SeriesFormState[K],
+  ) => {
     setForm((prev) => ({ ...prev, [key]: value }));
     setErrors((prev) => {
       if (!prev[key as string]) return prev;
@@ -96,17 +142,31 @@ export const SeriesEditor: React.FC<SeriesEditorProps> = ({ series, onClose, onS
 
   const validate = (): boolean => {
     const nextErrors: Record<string, string> = {};
-    if (form.title.trim().length === 0 || form.title.trim().length > 150) nextErrors.title = 'العنوان مطلوب (حتى 150 حرفاً)';
-    if (form.hook.trim().length === 0 || form.hook.trim().length > 300) nextErrors.hook = 'الجملة التسويقية مطلوبة (حتى 300 حرف)';
-    if (form.description.trim().length === 0 || form.description.trim().length > 5000) nextErrors.description = 'الوصف مطلوب (حتى 5000 حرف)';
-    const isValidMedia = (val: string) => val.trim().startsWith('http://') || val.trim().startsWith('https://') || val.trim().startsWith('/');
-    if (!isValidMedia(form.posterUrl)) nextErrors.posterUrl = 'يرجى رفع صورة الغلاف أو إدخال رابط صالح';
-    if (!isValidMedia(form.heroArtworkUrl)) nextErrors.heroArtworkUrl = 'يرجى رفع صورة الواجهة أو إدخال رابط صالح';
-    if (form.shareVideoUrl.trim() && !isValidMedia(form.shareVideoUrl)) nextErrors.shareVideoUrl = 'رابط الفيديو غير صالح';
+    if (form.title.trim().length === 0 || form.title.trim().length > 150)
+      nextErrors.title = 'العنوان مطلوب (حتى 150 حرفاً)';
+    if (form.hook.trim().length === 0 || form.hook.trim().length > 300)
+      nextErrors.hook = 'الجملة التسويقية مطلوبة (حتى 300 حرف)';
+    if (
+      form.description.trim().length === 0 ||
+      form.description.trim().length > 5000
+    )
+      nextErrors.description = 'الوصف مطلوب (حتى 5000 حرف)';
+    const isValidMedia = (val: string) =>
+      val.trim().startsWith('http://') ||
+      val.trim().startsWith('https://') ||
+      val.trim().startsWith('/');
+    if (!isValidMedia(form.posterUrl))
+      nextErrors.posterUrl = 'يرجى رفع صورة الغلاف أو إدخال رابط صالح';
+    if (!isValidMedia(form.heroArtworkUrl))
+      nextErrors.heroArtworkUrl = 'يرجى رفع صورة الواجهة أو إدخال رابط صالح';
+    if (form.shareVideoUrl.trim() && !isValidMedia(form.shareVideoUrl))
+      nextErrors.shareVideoUrl = 'رابط الفيديو غير صالح';
     const year = Number(form.productionYear);
-    if (!Number.isInteger(year) || year < 1900 || year > 2100) nextErrors.productionYear = 'سنة بين 1900 و 2100';
+    if (!Number.isInteger(year) || year < 1900 || year > 2100)
+      nextErrors.productionYear = 'سنة بين 1900 و 2100';
     const freeCount = Number(form.freeEpisodesCount);
-    if (!Number.isInteger(freeCount) || freeCount < 0 || freeCount > 10) nextErrors.freeEpisodesCount = 'عدد بين 0 و 10';
+    if (!Number.isInteger(freeCount) || freeCount < 0 || freeCount > 10)
+      nextErrors.freeEpisodesCount = 'عدد بين 0 و 10';
     setErrors(nextErrors);
     return Object.keys(nextErrors).length === 0;
   };
@@ -127,6 +187,7 @@ export const SeriesEditor: React.FC<SeriesEditorProps> = ({ series, onClose, onS
         heroArtworkUrl: form.heroArtworkUrl.trim(),
         shareVideoUrl: form.shareVideoUrl.trim() || null,
         genres: splitList(form.genresText),
+        categoryIds: form.categoryIds,
         contentWarnings: splitList(form.contentWarningsText),
         contentRating: form.contentRating,
         productionYear: Number(form.productionYear),
@@ -139,16 +200,22 @@ export const SeriesEditor: React.FC<SeriesEditorProps> = ({ series, onClose, onS
       }
 
       const res = series
-        ? await adminApi<{ success: boolean; id?: string }>('/api/v1/admin/content', {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ...payload, seriesId: series._id }),
-          })
-        : await adminApi<{ success: boolean; id?: string }>('/api/v1/admin/content', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload),
-          });
+        ? await adminApi<{ success: boolean; id?: string }>(
+            '/api/v1/admin/content',
+            {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ ...payload, seriesId: series._id }),
+            },
+          )
+        : await adminApi<{ success: boolean; id?: string }>(
+            '/api/v1/admin/content',
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload),
+            },
+          );
 
       if (!res.ok) {
         setServerError(res.error);
@@ -184,8 +251,8 @@ export const SeriesEditor: React.FC<SeriesEditorProps> = ({ series, onClose, onS
         series
           ? 'تم حفظ تعديلات المسلسل بنجاح'
           : autoCreateSeason1
-          ? 'تم إنشاء المسلسل والموسم الأول بنجاح! يمكنك الآن إضافة الحلقات مباشرة.'
-          : 'تم إنشاء المسلسل بنجاح'
+            ? 'تم إنشاء المسلسل والموسم الأول بنجاح! يمكنك الآن إضافة الحلقات مباشرة.'
+            : 'تم إنشاء المسلسل بنجاح',
       );
       onClose();
     } finally {
@@ -194,7 +261,12 @@ export const SeriesEditor: React.FC<SeriesEditorProps> = ({ series, onClose, onS
   };
 
   return (
-    <ModalDialog title={series ? `تعديل المسلسل: ${series.title}` : 'مسلسل جديد'} onClose={onClose} isDirty={isDirty} wide>
+    <ModalDialog
+      title={series ? `تعديل المسلسل: ${series.title}` : 'مسلسل جديد'}
+      onClose={onClose}
+      isDirty={isDirty}
+      wide
+    >
       <form onSubmit={handleSubmit} noValidate className="space-y-4">
         <details open className={detailsClass}>
           <summary className={summaryClass}>البيانات الأساسية</summary>
@@ -210,7 +282,9 @@ export const SeriesEditor: React.FC<SeriesEditorProps> = ({ series, onClose, onS
                 onChange={(e) => setField('title', e.target.value)}
                 className={inputClass}
                 aria-invalid={Boolean(errors.title)}
-                aria-describedby={errors.title ? 'series-title-error' : undefined}
+                aria-describedby={
+                  errors.title ? 'series-title-error' : undefined
+                }
               />
               {errors.title && (
                 <p id="series-title-error" role="alert" className={errorClass}>
@@ -231,7 +305,10 @@ export const SeriesEditor: React.FC<SeriesEditorProps> = ({ series, onClose, onS
                 className={inputClass}
                 aria-describedby="series-slug-hint"
               />
-              <p id="series-slug-hint" className="text-[10px] text-editorial-muted mt-1">
+              <p
+                id="series-slug-hint"
+                className="text-[10px] text-editorial-muted mt-1"
+              >
                 يحدد رابط المسلسل العام.
               </p>
             </div>
@@ -310,8 +387,70 @@ export const SeriesEditor: React.FC<SeriesEditorProps> = ({ series, onClose, onS
           <summary className={summaryClass}>التصنيف وتحذيرات المحتوى</summary>
           <div className="p-4 pt-1 space-y-3">
             <div>
+              <label className={labelClass}>تصنيفات المنصة</label>
+
+              {categoriesLoading ? (
+                <p className="text-xs text-editorial-muted">
+                  جارٍ تحميل التصنيفات...
+                </p>
+              ) : categories.length === 0 ? (
+                <p className="text-xs text-amber-300">
+                  لا توجد تصنيفات بعد. أضف تصنيفاً أولاً من قسم إدارة التصنيفات.
+                </p>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {categories.map((category) => {
+                    const checked = form.categoryIds.includes(category._id);
+
+                    return (
+                      <label
+                        key={category._id}
+                        className={`min-h-11 flex items-center gap-2 rounded-lg border px-3 py-2 cursor-pointer transition-colors ${
+                          checked
+                            ? 'border-crimson bg-crimson-subtle text-editorial-ivory'
+                            : 'border-border-subtle bg-surface-elevated text-editorial-secondary'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => {
+                            setField(
+                              'categoryIds',
+                              checked
+                                ? form.categoryIds.filter(
+                                    (id) => id !== category._id,
+                                  )
+                                : [...form.categoryIds, category._id],
+                            );
+                          }}
+                          className="accent-crimson"
+                        />
+
+                        <span className="text-xs font-semibold">
+                          {category.nameAr}
+                        </span>
+
+                        {!category.isActive && (
+                          <span className="text-[10px] text-editorial-muted">
+                            مخفي
+                          </span>
+                        )}
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
+
+              <p className="mt-1 text-[10px] text-editorial-muted">
+                اختر حتى 5 تصنيفات. هذه هي التصنيفات التي تحدد صفحة استكشف وصفحة
+                التصنيف.
+              </p>
+            </div>
+
+            <div>
               <label htmlFor="series-genres" className={labelClass}>
-                التصنيفات (افصل بينها بفواصل)
+                وسوم وصفية اختيارية (افصل بينها بفواصل)
               </label>
               <input
                 id="series-genres"
@@ -330,7 +469,9 @@ export const SeriesEditor: React.FC<SeriesEditorProps> = ({ series, onClose, onS
                 id="series-warnings"
                 type="text"
                 value={form.contentWarningsText}
-                onChange={(e) => setField('contentWarningsText', e.target.value)}
+                onChange={(e) =>
+                  setField('contentWarningsText', e.target.value)
+                }
                 placeholder="عنف، لغة قاسية"
                 className={inputClass}
               />
@@ -343,7 +484,12 @@ export const SeriesEditor: React.FC<SeriesEditorProps> = ({ series, onClose, onS
                 <select
                   id="series-rating"
                   value={form.contentRating}
-                  onChange={(e) => setField('contentRating', e.target.value as AdminSeriesDTO['contentRating'])}
+                  onChange={(e) =>
+                    setField(
+                      'contentRating',
+                      e.target.value as AdminSeriesDTO['contentRating'],
+                    )
+                  }
                   className={inputClass}
                 >
                   <option value="GENERAL">للجميع</option>
@@ -408,7 +554,8 @@ export const SeriesEditor: React.FC<SeriesEditorProps> = ({ series, onClose, onS
                   className="w-5 h-5 accent-[#A8202A]"
                 />
                 <span className="text-xs text-editorial-secondary">
-                  منشور للجمهور — {form.published ? 'سيظهر في الكتالوج' : 'مخفي حتى النشر'}
+                  منشور للجمهور —{' '}
+                  {form.published ? 'سيظهر في الكتالوج' : 'مخفي حتى النشر'}
                 </span>
               </label>
               <label className="flex items-center gap-3 min-h-11 cursor-pointer">
@@ -418,7 +565,9 @@ export const SeriesEditor: React.FC<SeriesEditorProps> = ({ series, onClose, onS
                   onChange={(e) => setField('isCompleted', e.target.checked)}
                   className="w-5 h-5 accent-[#A8202A]"
                 />
-                <span className="text-xs text-editorial-secondary">مسلسل مكتمل (انتهت حلقاته)</span>
+                <span className="text-xs text-editorial-secondary">
+                  مسلسل مكتمل (انتهت حلقاته)
+                </span>
               </label>
               <label className="flex items-center gap-3 min-h-11 cursor-pointer">
                 <input
@@ -427,7 +576,9 @@ export const SeriesEditor: React.FC<SeriesEditorProps> = ({ series, onClose, onS
                   onChange={(e) => setField('featured', e.target.checked)}
                   className="w-5 h-5 accent-[#A8202A]"
                 />
-                <span className="text-xs text-editorial-secondary">مُبرَز في الصفحة الرئيسية</span>
+                <span className="text-xs text-editorial-secondary">
+                  مُبرَز في الصفحة الرئيسية
+                </span>
               </label>
             </div>
           </div>
@@ -451,7 +602,10 @@ export const SeriesEditor: React.FC<SeriesEditorProps> = ({ series, onClose, onS
         )}
 
         {serverError && (
-          <p role="alert" className="p-3 bg-red-950/40 border border-red-800 text-red-300 text-xs rounded-lg">
+          <p
+            role="alert"
+            className="p-3 bg-red-950/40 border border-red-800 text-red-300 text-xs rounded-lg"
+          >
             {serverError}
           </p>
         )}
@@ -462,8 +616,20 @@ export const SeriesEditor: React.FC<SeriesEditorProps> = ({ series, onClose, onS
             disabled={saving}
             className="min-h-11 px-5 py-2.5 bg-crimson hover:bg-crimson-bright text-white text-xs font-bold rounded-lg transition-colors disabled:opacity-50 flex items-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson-glow focus-visible:ring-offset-2 focus-visible:ring-offset-obsidian"
           >
-            {saving && <Loader2 size={14} className="animate-spin" aria-label="جارٍ الحفظ" />}
-            <span>{saving ? 'جارٍ الحفظ...' : series ? 'حفظ التعديلات' : 'إنشاء المسلسل'}</span>
+            {saving && (
+              <Loader2
+                size={14}
+                className="animate-spin"
+                aria-label="جارٍ الحفظ"
+              />
+            )}
+            <span>
+              {saving
+                ? 'جارٍ الحفظ...'
+                : series
+                  ? 'حفظ التعديلات'
+                  : 'إنشاء المسلسل'}
+            </span>
           </button>
           <button
             type="button"

@@ -13,6 +13,7 @@ import {
   Series,
   Season,
   Episode,
+  Category,
   Transcript,
   AdminAuditLog,
   Purchase,
@@ -43,8 +44,16 @@ import {
   buildEpisodeMediaUpdates,
   type StorageCleanupReport,
 } from '@/lib/admin/content-api';
-import { extractStorageKey, StorageService, validateUploadFinalizeInput } from '@/lib/storage';
-import { getPublicPlatformOrigin, mediaUrlFromStorageKey, normalizeMediaUrl } from '@/lib/media/urls';
+import {
+  extractStorageKey,
+  StorageService,
+  validateUploadFinalizeInput,
+} from '@/lib/storage';
+import {
+  getPublicPlatformOrigin,
+  mediaUrlFromStorageKey,
+  normalizeMediaUrl,
+} from '@/lib/media/urls';
 
 const CONTENT_ROLES = ['SUPER_ADMIN', 'ADMIN', 'CONTENT_EDITOR'];
 const CONTENT_RATINGS = ['GENERAL', 'PG13', 'PG16', 'PG18'];
@@ -57,6 +66,7 @@ const MAX_HOOK = 300;
 const MAX_DESCRIPTION = 5000;
 const MAX_URL = 500;
 const MAX_GENRES = 12;
+const MAX_CATEGORY_IDS = 5;
 const MAX_WARNINGS = 10;
 const MAX_SEASON_TITLE = 150;
 const MAX_EPISODE_TITLE = 150;
@@ -70,10 +80,19 @@ const MAX_JSON_BODY_BYTES = 3 * 1024 * 1024; // سماحية جسم الطلب J
 // أدوات داخلية
 // ============================================================
 
-async function parseJsonBody(req: Request): Promise<{ ok: true; body: Record<string, unknown> } | { ok: false; status: number; error: string }> {
+async function parseJsonBody(
+  req: Request,
+): Promise<
+  | { ok: true; body: Record<string, unknown> }
+  | { ok: false; status: number; error: string }
+> {
   const contentType = req.headers.get('content-type') || '';
   if (!contentType.toLowerCase().includes('application/json')) {
-    return { ok: false, status: 415, error: 'نوع المحتوى يجب أن يكون application/json' };
+    return {
+      ok: false,
+      status: 415,
+      error: 'نوع المحتوى يجب أن يكون application/json',
+    };
   }
   const contentLength = Number(req.headers.get('content-length') || '0');
   if (Number.isFinite(contentLength) && contentLength > MAX_JSON_BODY_BYTES) {
@@ -94,12 +113,50 @@ function checkAdminRole(admin: { role: string }) {
   return CONTENT_ROLES.includes(admin.role);
 }
 
+// تمنع إرسال ID مزيف، وتتحقق أن كل التصنيفات المختارة موجودة فعلاً في MongoDB.
+async function validateCategoryIds(
+  value: unknown,
+): Promise<{ ok: true; categoryIds: string[] } | { ok: false; error: string }> {
+  if (!Array.isArray(value) || value.length > MAX_CATEGORY_IDS) {
+    return {
+      ok: false,
+      error: `يمكن اختيار ${MAX_CATEGORY_IDS} تصنيفات كحد أقصى`,
+    };
+  }
+
+  const categoryIds = [...new Set(value)];
+
+  if (
+    categoryIds.length !== value.length ||
+    !categoryIds.every((id) => typeof id === 'string' && isValidObjectId(id))
+  ) {
+    return { ok: false, error: 'معرّفات التصنيفات غير صالحة' };
+  }
+
+  if (categoryIds.length === 0) {
+    return { ok: true, categoryIds: [] };
+  }
+
+  const existingCount = await Category.countDocuments({
+    _id: { $in: categoryIds },
+  });
+
+  if (existingCount !== categoryIds.length) {
+    return { ok: false, error: 'يوجد تصنيف مختار لم يعد موجوداً' };
+  }
+
+  return { ok: true, categoryIds };
+}
+
 async function syncSeriesCounters(seriesId: string) {
   const [seasonsCount, episodes] = await Promise.all([
     Season.countDocuments({ seriesId }),
     Episode.find({ seriesId }).select('durationMs').lean(),
   ]);
-  const totalDurationMs = (episodes as any[]).reduce((acc, ep) => acc + (Number(ep.durationMs) || 0), 0);
+  const totalDurationMs = (episodes as any[]).reduce(
+    (acc, ep) => acc + (Number(ep.durationMs) || 0),
+    0,
+  );
   await Series.findByIdAndUpdate(seriesId, {
     totalSeasonsCount: seasonsCount,
     totalEpisodesCount: episodes.length,
@@ -108,7 +165,9 @@ async function syncSeriesCounters(seriesId: string) {
 }
 
 async function syncSeasonEpisodesCount(seasonId: string) {
-  await Season.findByIdAndUpdate(seasonId, { episodesCount: await Episode.countDocuments({ seasonId }) });
+  await Season.findByIdAndUpdate(seasonId, {
+    episodesCount: await Episode.countDocuments({ seasonId }),
+  });
 }
 
 interface SegmentInput {
@@ -119,7 +178,11 @@ interface SegmentInput {
   order: number;
 }
 
-function validateSegments(value: unknown): { ok: true; segments: SegmentInput[]; lastEndMs: number } | { ok: false; error: string } {
+function validateSegments(
+  value: unknown,
+):
+  | { ok: true; segments: SegmentInput[]; lastEndMs: number }
+  | { ok: false; error: string } {
   if (!Array.isArray(value) || value.length === 0) {
     return { ok: false, error: 'يجب إرسال مقاطع النص كمصفوفة غير فارغة' };
   }
@@ -131,22 +194,51 @@ function validateSegments(value: unknown): { ok: true; segments: SegmentInput[];
   let previousEnd = -1;
   for (let i = 0; i < value.length; i++) {
     const raw = value[i];
-    if (!isPlainObject(raw)) return { ok: false, error: `المقطع ${i + 1}: بيانات غير صالحة` };
+    if (!isPlainObject(raw))
+      return { ok: false, error: `المقطع ${i + 1}: بيانات غير صالحة` };
     const { startMs, endMs, text } = raw as Record<string, unknown>;
-    if (!isBoundedInt(startMs, 0, MAX_DURATION_MS)) return { ok: false, error: `المقطع ${i + 1}: وقت البدء غير صالح` };
-    if (!isBoundedInt(endMs, 0, MAX_DURATION_MS)) return { ok: false, error: `المقطع ${i + 1}: وقت الانتهاء غير صالح` };
-    if (endMs < startMs) return { ok: false, error: `المقطع ${i + 1}: وقت الانتهاء قبل وقت البدء` };
-    if (typeof text !== 'string') return { ok: false, error: `المقطع ${i + 1}: النص مفقود` };
+    if (!isBoundedInt(startMs, 0, MAX_DURATION_MS))
+      return { ok: false, error: `المقطع ${i + 1}: وقت البدء غير صالح` };
+    if (!isBoundedInt(endMs, 0, MAX_DURATION_MS))
+      return { ok: false, error: `المقطع ${i + 1}: وقت الانتهاء غير صالح` };
+    if (endMs < startMs)
+      return {
+        ok: false,
+        error: `المقطع ${i + 1}: وقت الانتهاء قبل وقت البدء`,
+      };
+    if (typeof text !== 'string')
+      return { ok: false, error: `المقطع ${i + 1}: النص مفقود` };
     const cleanedText = stripControlChars(text).trim();
     if (cleanedText.length === 0 || cleanedText.length > MAX_SEGMENT_TEXT) {
-      return { ok: false, error: `المقطع ${i + 1}: طول النص يجب أن يكون بين 1 و ${MAX_SEGMENT_TEXT} حرفاً` };
+      return {
+        ok: false,
+        error: `المقطع ${i + 1}: طول النص يجب أن يكون بين 1 و ${MAX_SEGMENT_TEXT} حرفاً`,
+      };
     }
-    if (containsHtml(cleanedText)) return { ok: false, error: `المقطع ${i + 1}: النص يجب ألا يحتوي وسوم HTML` };
-    if (startMs < previousStart) return { ok: false, error: `المقطع ${i + 1}: أوقات البدء يجب أن تكون تصاعدية` };
-    if (startMs < previousEnd) return { ok: false, error: `المقطع ${i + 1}: يتداخل زمنياً مع المقطع السابق` };
+    if (containsHtml(cleanedText))
+      return {
+        ok: false,
+        error: `المقطع ${i + 1}: النص يجب ألا يحتوي وسوم HTML`,
+      };
+    if (startMs < previousStart)
+      return {
+        ok: false,
+        error: `المقطع ${i + 1}: أوقات البدء يجب أن تكون تصاعدية`,
+      };
+    if (startMs < previousEnd)
+      return {
+        ok: false,
+        error: `المقطع ${i + 1}: يتداخل زمنياً مع المقطع السابق`,
+      };
     previousStart = startMs;
     previousEnd = endMs;
-    segments.push({ id: `seg-${i + 1}`, startMs, endMs, text: cleanedText, order: i + 1 });
+    segments.push({
+      id: `seg-${i + 1}`,
+      startMs,
+      endMs,
+      text: cleanedText,
+      order: i + 1,
+    });
   }
   return { ok: true, segments, lastEndMs: segments[segments.length - 1].endMs };
 }
@@ -158,6 +250,9 @@ function seriesSummary(s: any) {
     featured: s.featured,
     publishedAt: s.publishedAt,
     freeEpisodesCount: s.freeEpisodesCount,
+    categoryIds: Array.isArray(s.categoryIds)
+      ? s.categoryIds.map((id: any) => id.toString())
+      : [],
   };
 }
 
@@ -179,13 +274,21 @@ export async function GET(req: Request) {
   // جلب نص متزامن واحد للتحرير: ?transcriptOf=<episodeId>
   const transcriptOf = new URL(req.url).searchParams.get('transcriptOf');
   if (transcriptOf !== null) {
-    if (!isValidObjectId(transcriptOf)) return jsonError('معرّف الحلقة غير صالح', 400);
+    if (!isValidObjectId(transcriptOf))
+      return jsonError('معرّف الحلقة غير صالح', 400);
     try {
-      const transcript = await Transcript.findOne({ episodeId: new Types.ObjectId(transcriptOf) }).lean();
+      const transcript = await Transcript.findOne({
+        episodeId: new Types.ObjectId(transcriptOf),
+      }).lean();
       return jsonOk({
-        segments: transcript && Array.isArray((transcript as any).segments)
-          ? (transcript as any).segments.map((seg: any) => ({ startMs: seg.startMs, endMs: seg.endMs, text: seg.text }))
-          : [],
+        segments:
+          transcript && Array.isArray((transcript as any).segments)
+            ? (transcript as any).segments.map((seg: any) => ({
+                startMs: seg.startMs,
+                endMs: seg.endMs,
+                text: seg.text,
+              }))
+            : [],
       });
     } catch (error) {
       console.error('Admin get transcript error:', error);
@@ -204,20 +307,35 @@ export async function GET(req: Request) {
     const segmentsCountByEpisode = new Map<string, number>();
     for (const t of transcripts as any[]) {
       const key = t.episodeId?.toString();
-      if (key) segmentsCountByEpisode.set(key, Array.isArray(t.segments) ? t.segments.length : 0);
+      if (key)
+        segmentsCountByEpisode.set(
+          key,
+          Array.isArray(t.segments) ? t.segments.length : 0,
+        );
     }
 
     const result = (seriesDocs as any[]).map((s) => ({
       _id: s._id.toString(),
       title: s.title,
       slug: s.slug,
-      posterUrl: mediaUrlFromStorageKey(normalizeMediaUrl(s.posterUrl), getPublicPlatformOrigin()),
-      heroArtworkUrl: mediaUrlFromStorageKey(normalizeMediaUrl(s.heroArtworkUrl), getPublicPlatformOrigin()),
+      posterUrl: mediaUrlFromStorageKey(
+        normalizeMediaUrl(s.posterUrl),
+        getPublicPlatformOrigin(),
+      ),
+      heroArtworkUrl: mediaUrlFromStorageKey(
+        normalizeMediaUrl(s.heroArtworkUrl),
+        getPublicPlatformOrigin(),
+      ),
       hook: s.hook,
       description: s.description,
       genres: Array.isArray(s.genres) ? s.genres : [],
+      categoryIds: Array.isArray(s.categoryIds)
+        ? s.categoryIds.map((id: any) => id.toString())
+        : [],
       contentRating: s.contentRating,
-      contentWarnings: Array.isArray(s.contentWarnings) ? s.contentWarnings : [],
+      contentWarnings: Array.isArray(s.contentWarnings)
+        ? s.contentWarnings
+        : [],
       productionYear: s.productionYear,
       shareVideoUrl: s.shareVideoUrl ?? null,
       isCompleted: Boolean(s.isCompleted),
@@ -244,13 +362,20 @@ export async function GET(req: Request) {
               teaser: ep.teaser ?? null,
               durationMs: ep.durationMs,
               isFree: Boolean(ep.isFree),
-              publishDate: ep.publishDate ? new Date(ep.publishDate).toISOString() : null,
+              publishDate: ep.publishDate
+                ? new Date(ep.publishDate).toISOString()
+                : null,
               artworkOverride: ep.artworkOverride ?? null,
-              audioStatus: ep.audioPublicUrl ? 'PUBLIC' : ep.audioStorageKey ? 'PROTECTED' : 'MISSING',
+              audioStatus: ep.audioPublicUrl
+                ? 'PUBLIC'
+                : ep.audioStorageKey
+                  ? 'PROTECTED'
+                  : 'MISSING',
               audioPublicUrl: ep.audioPublicUrl ?? null,
               audioStorageKey: ep.audioStorageKey ?? null,
               hasTranscript: segmentsCountByEpisode.has(ep._id.toString()),
-              transcriptSegmentsCount: segmentsCountByEpisode.get(ep._id.toString()) ?? 0,
+              transcriptSegmentsCount:
+                segmentsCountByEpisode.get(ep._id.toString()) ?? 0,
             })),
         })),
     }));
@@ -269,7 +394,8 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   const admin = await getCurrentAdmin();
   if (!admin) return jsonError('غير مصرح لك', 401);
-  if (!checkAdminRole(admin)) return jsonError('ليس لديك صلاحية تعديل المحتوى', 403);
+  if (!checkAdminRole(admin))
+    return jsonError('ليس لديك صلاحية تعديل المحتوى', 403);
 
   const conn = await connectDB();
   if (!conn) return jsonError('قاعدة البيانات غير متاحة', 503);
@@ -282,71 +408,135 @@ export async function POST(req: Request) {
   try {
     // ---------- إنشاء مسلسل ----------
     if (entity === 'series') {
-      if (!isNonEmptyString(body.title, 1, MAX_SERIES_TITLE)) return jsonError('عنوان المسلسل مطلوب (حتى 150 حرفاً)');
+      if (!isNonEmptyString(body.title, 1, MAX_SERIES_TITLE))
+        return jsonError('عنوان المسلسل مطلوب (حتى 150 حرفاً)');
       const title = stripControlChars(body.title).trim();
-      if (containsHtml(title)) return jsonError('العنوان يجب ألا يحتوي وسوم HTML');
+      if (containsHtml(title))
+        return jsonError('العنوان يجب ألا يحتوي وسوم HTML');
 
-      const rawSlug = typeof body.slug === 'string' && body.slug.trim() ? body.slug : title;
+      const rawSlug =
+        typeof body.slug === 'string' && body.slug.trim() ? body.slug : title;
       const slug = slugify(rawSlug);
-      if (!slug || slug.length > MAX_SLUG) return jsonError('المعرّف (slug) غير صالح — استخدم حروفاً وأرقاماً وشرطات فقط');
+      if (!slug || slug.length > MAX_SLUG)
+        return jsonError(
+          'المعرّف (slug) غير صالح — استخدم حروفاً وأرقاماً وشرطات فقط',
+        );
 
-      if (!isNonEmptyString(body.hook, 1, MAX_HOOK)) return jsonError('الجملة التسويقية مطلوبة (حتى 300 حرف)');
+      if (!isNonEmptyString(body.hook, 1, MAX_HOOK))
+        return jsonError('الجملة التسويقية مطلوبة (حتى 300 حرف)');
       const hook = stripControlChars(body.hook).trim();
-      if (containsHtml(hook)) return jsonError('الجملة التسويقية يجب ألا تحتوي وسوم HTML');
-      if (!isNonEmptyString(body.description, 1, MAX_DESCRIPTION)) return jsonError('الوصف مطلوب (حتى 5000 حرف)');
+      if (containsHtml(hook))
+        return jsonError('الجملة التسويقية يجب ألا تحتوي وسوم HTML');
+      if (!isNonEmptyString(body.description, 1, MAX_DESCRIPTION))
+        return jsonError('الوصف مطلوب (حتى 5000 حرف)');
       const description = stripControlChars(body.description).trim();
-      if (containsHtml(description)) return jsonError('الوصف يجب ألا يحتوي وسوم HTML');
+      if (containsHtml(description))
+        return jsonError('الوصف يجب ألا يحتوي وسوم HTML');
 
-      if (!isNonEmptyString(body.posterUrl, 1, MAX_URL) || !isSafeMediaUrl(body.posterUrl.trim())) {
+      if (
+        !isNonEmptyString(body.posterUrl, 1, MAX_URL) ||
+        !isSafeMediaUrl(body.posterUrl.trim())
+      ) {
         return jsonError('رابط صورة الغلاف مطلوب ويجب أن يكون رابطاً صالحاً');
       }
-      if (!isNonEmptyString(body.heroArtworkUrl, 1, MAX_URL) || !isSafeMediaUrl(body.heroArtworkUrl.trim())) {
+      if (
+        !isNonEmptyString(body.heroArtworkUrl, 1, MAX_URL) ||
+        !isSafeMediaUrl(body.heroArtworkUrl.trim())
+      ) {
         return jsonError('رابط صورة الواجهة مطلوب ويجب أن يكون رابطاً صالحاً');
       }
 
-      const genres = body.genres === undefined ? [] : parseStringArray(body.genres, MAX_GENRES, 50);
+      const genres =
+        body.genres === undefined
+          ? []
+          : parseStringArray(body.genres, MAX_GENRES, 50);
       if (genres === null) return jsonError('التصنيفات غير صالحة');
-      const contentWarnings = body.contentWarnings === undefined ? [] : parseStringArray(body.contentWarnings, MAX_WARNINGS, 100);
-      if (contentWarnings === null) return jsonError('تحذيرات المحتوى غير صالحة');
 
-      const contentRating = body.contentRating === undefined ? 'PG13' : body.contentRating;
-      if (typeof contentRating !== 'string' || !CONTENT_RATINGS.includes(contentRating)) {
+      const categoryResult = await validateCategoryIds(
+        body.categoryIds === undefined ? [] : body.categoryIds,
+      );
+
+      if (!categoryResult.ok) {
+        return jsonError(categoryResult.error);
+      }
+
+      const categoryIds = categoryResult.categoryIds;
+
+      const contentWarnings =
+        body.contentWarnings === undefined
+          ? []
+          : parseStringArray(body.contentWarnings, MAX_WARNINGS, 100);
+      if (contentWarnings === null)
+        return jsonError('تحذيرات المحتوى غير صالحة');
+
+      const contentRating =
+        body.contentRating === undefined ? 'PG13' : body.contentRating;
+      if (
+        typeof contentRating !== 'string' ||
+        !CONTENT_RATINGS.includes(contentRating)
+      ) {
         return jsonError('تصنيف العمر غير صالح');
       }
 
-      const productionYear = body.productionYear === undefined ? new Date().getFullYear() : body.productionYear;
-      if (!isBoundedInt(productionYear, 1900, 2100)) return jsonError('سنة الإنتاج يجب أن تكون بين 1900 و 2100');
+      const productionYear =
+        body.productionYear === undefined
+          ? new Date().getFullYear()
+          : body.productionYear;
+      if (!isBoundedInt(productionYear, 1900, 2100))
+        return jsonError('سنة الإنتاج يجب أن تكون بين 1900 و 2100');
 
-      const freeEpisodesCount = body.freeEpisodesCount === undefined ? 2 : body.freeEpisodesCount;
-      if (!isBoundedInt(freeEpisodesCount, 0, 10)) return jsonError('عدد الحلقات المجانية يجب أن يكون بين 0 و 10');
+      const freeEpisodesCount =
+        body.freeEpisodesCount === undefined ? 2 : body.freeEpisodesCount;
+      if (!isBoundedInt(freeEpisodesCount, 0, 10))
+        return jsonError('عدد الحلقات المجانية يجب أن يكون بين 0 و 10');
 
-      if (body.shareVideoUrl !== undefined && body.shareVideoUrl !== null && body.shareVideoUrl !== '') {
-        if (typeof body.shareVideoUrl !== 'string' || !isSafeMediaUrl(body.shareVideoUrl.trim())) {
+      if (
+        body.shareVideoUrl !== undefined &&
+        body.shareVideoUrl !== null &&
+        body.shareVideoUrl !== ''
+      ) {
+        if (
+          typeof body.shareVideoUrl !== 'string' ||
+          !isSafeMediaUrl(body.shareVideoUrl.trim())
+        ) {
           return jsonError('رابط فيديو المشاركة غير صالح');
         }
       }
 
-      const featured = body.featured === undefined ? false : body.featured === true;
-      const isPublished = body.published === undefined ? true : body.published === true;
+      const featured =
+        body.featured === undefined ? false : body.featured === true;
+      const isPublished =
+        body.published === undefined ? true : body.published === true;
 
       const existing = await Series.exists({ slug });
-      if (existing) return jsonError('المعرّف (slug) مستخدم مسبقاً لمسلسل آخر', 409);
+      if (existing)
+        return jsonError('المعرّف (slug) مستخدم مسبقاً لمسلسل آخر', 409);
 
       const series = await Series.create({
         title,
         slug,
-        posterUrl: mediaUrlFromStorageKey(normalizeMediaUrl(body.posterUrl.trim()), getPublicPlatformOrigin()),
-        heroArtworkUrl: mediaUrlFromStorageKey(normalizeMediaUrl(body.heroArtworkUrl.trim()), getPublicPlatformOrigin()),
+        posterUrl: mediaUrlFromStorageKey(
+          normalizeMediaUrl(body.posterUrl.trim()),
+          getPublicPlatformOrigin(),
+        ),
+        heroArtworkUrl: mediaUrlFromStorageKey(
+          normalizeMediaUrl(body.heroArtworkUrl.trim()),
+          getPublicPlatformOrigin(),
+        ),
         hook,
         description,
         genres,
+        categoryIds,
         contentWarnings,
         contentRating,
         productionYear,
         freeEpisodesCount,
         featured,
         isCompleted: body.isCompleted === true,
-        shareVideoUrl: typeof body.shareVideoUrl === 'string' && body.shareVideoUrl.trim() ? body.shareVideoUrl.trim() : undefined,
+        shareVideoUrl:
+          typeof body.shareVideoUrl === 'string' && body.shareVideoUrl.trim()
+            ? body.shareVideoUrl.trim()
+            : undefined,
         publishedAt: isPublished ? new Date() : null,
       });
 
@@ -358,40 +548,62 @@ export async function POST(req: Request) {
         newState: seriesSummary(series),
       });
 
-      return jsonOk({ success: true, id: series._id.toString(), slug: series.slug }, 201);
+      return jsonOk(
+        { success: true, id: series._id.toString(), slug: series.slug },
+        201,
+      );
     }
 
     // ---------- إنشاء موسم ----------
     if (entity === 'season') {
       const { seriesId } = body;
-      if (typeof seriesId !== 'string' || !isValidObjectId(seriesId)) return jsonError('معرّف المسلسل غير صالح');
+      if (typeof seriesId !== 'string' || !isValidObjectId(seriesId))
+        return jsonError('معرّف المسلسل غير صالح');
       const series = await Series.findById(seriesId);
       if (!series) return jsonError('المسلسل غير موجود', 404);
 
-      if (!isBoundedInt(body.seasonNumber, 1, 100)) return jsonError('رقم الموسم يجب أن يكون بين 1 و 100');
-      if (!isNonEmptyString(body.title, 1, MAX_SEASON_TITLE)) return jsonError('عنوان الموسم مطلوب (حتى 150 حرفاً)');
+      if (!isBoundedInt(body.seasonNumber, 1, 100))
+        return jsonError('رقم الموسم يجب أن يكون بين 1 و 100');
+      if (!isNonEmptyString(body.title, 1, MAX_SEASON_TITLE))
+        return jsonError('عنوان الموسم مطلوب (حتى 150 حرفاً)');
       const title = stripControlChars(body.title).trim();
-      if (containsHtml(title)) return jsonError('العنوان يجب ألا يحتوي وسوم HTML');
+      if (containsHtml(title))
+        return jsonError('العنوان يجب ألا يحتوي وسوم HTML');
 
       let description: string | undefined;
-      if (body.description !== undefined && body.description !== null && body.description !== '') {
-        if (!isNonEmptyString(body.description, 1, 2000)) return jsonError('وصف الموسم يجب أن يكون بين 1 و 2000 حرف');
+      if (
+        body.description !== undefined &&
+        body.description !== null &&
+        body.description !== ''
+      ) {
+        if (!isNonEmptyString(body.description, 1, 2000))
+          return jsonError('وصف الموسم يجب أن يكون بين 1 و 2000 حرف');
         description = stripControlChars(body.description).trim();
-        if (containsHtml(description)) return jsonError('الوصف يجب ألا يحتوي وسوم HTML');
+        if (containsHtml(description))
+          return jsonError('الوصف يجب ألا يحتوي وسوم HTML');
       }
 
-      const releaseStatus = body.releaseStatus === undefined ? 'AVAILABLE' : body.releaseStatus;
-      if (typeof releaseStatus !== 'string' || !RELEASE_STATUSES.includes(releaseStatus)) {
+      const releaseStatus =
+        body.releaseStatus === undefined ? 'AVAILABLE' : body.releaseStatus;
+      if (
+        typeof releaseStatus !== 'string' ||
+        !RELEASE_STATUSES.includes(releaseStatus)
+      ) {
         return jsonError('حالة الإصدار غير صالحة');
       }
 
       const price = body.price === undefined ? 0.5 : body.price;
-      if (!isBoundedNumber(price, 0.01, 10000)) return jsonError('السعر يجب أن يكون بين 0.01 و 10000');
+      if (!isBoundedNumber(price, 0.01, 10000))
+        return jsonError('السعر يجب أن يكون بين 0.01 و 10000');
 
       const currency = body.currency === undefined ? 'USD' : body.currency;
-      if (typeof currency !== 'string' || !CURRENCIES.includes(currency)) return jsonError('العملة غير مدعومة حالياً');
+      if (typeof currency !== 'string' || !CURRENCIES.includes(currency))
+        return jsonError('العملة غير مدعومة حالياً');
 
-      const duplicate = await Season.exists({ seriesId: series._id, seasonNumber: body.seasonNumber });
+      const duplicate = await Season.exists({
+        seriesId: series._id,
+        seasonNumber: body.seasonNumber,
+      });
       if (duplicate) return jsonError('يوجد موسم بنفس الرقم لهذا المسلسل', 409);
 
       const season = await Season.create({
@@ -410,7 +622,13 @@ export async function POST(req: Request) {
         action: 'CREATE_SEASON',
         targetEntity: 'Season',
         entityId: season._id.toString(),
-        newState: { seriesId, seasonNumber: season.seasonNumber, title, price, releaseStatus },
+        newState: {
+          seriesId,
+          seasonNumber: season.seasonNumber,
+          title,
+          price,
+          releaseStatus,
+        },
       });
 
       return jsonOk({ success: true, id: season._id.toString() }, 201);
@@ -419,35 +637,60 @@ export async function POST(req: Request) {
     // ---------- إنشاء حلقة ----------
     if (entity === 'episode') {
       const { seasonId } = body;
-      if (typeof seasonId !== 'string' || !isValidObjectId(seasonId)) return jsonError('معرّف الموسم غير صالح');
+      if (typeof seasonId !== 'string' || !isValidObjectId(seasonId))
+        return jsonError('معرّف الموسم غير صالح');
       const season = await Season.findById(seasonId);
       if (!season) return jsonError('الموسم غير موجود', 404);
 
-      if (!isBoundedInt(body.episodeNumber, 1, 1000)) return jsonError('رقم الحلقة يجب أن يكون بين 1 و 1000');
-      if (!isNonEmptyString(body.title, 1, MAX_EPISODE_TITLE)) return jsonError('عنوان الحلقة مطلوب (حتى 150 حرفاً)');
+      if (!isBoundedInt(body.episodeNumber, 1, 1000))
+        return jsonError('رقم الحلقة يجب أن يكون بين 1 و 1000');
+      if (!isNonEmptyString(body.title, 1, MAX_EPISODE_TITLE))
+        return jsonError('عنوان الحلقة مطلوب (حتى 150 حرفاً)');
       const title = stripControlChars(body.title).trim();
-      if (containsHtml(title)) return jsonError('العنوان يجب ألا يحتوي وسوم HTML');
+      if (containsHtml(title))
+        return jsonError('العنوان يجب ألا يحتوي وسوم HTML');
 
       let teaser: string | undefined;
-      if (body.teaser !== undefined && body.teaser !== null && body.teaser !== '') {
-        if (!isNonEmptyString(body.teaser, 1, MAX_TEASER)) return jsonError(`النبذة يجب أن تكون بين 1 و ${MAX_TEASER} حرفاً`);
+      if (
+        body.teaser !== undefined &&
+        body.teaser !== null &&
+        body.teaser !== ''
+      ) {
+        if (!isNonEmptyString(body.teaser, 1, MAX_TEASER))
+          return jsonError(`النبذة يجب أن تكون بين 1 و ${MAX_TEASER} حرفاً`);
         teaser = stripControlChars(body.teaser).trim();
-        if (containsHtml(teaser)) return jsonError('النبذة يجب ألا تحتوي وسوم HTML');
+        if (containsHtml(teaser))
+          return jsonError('النبذة يجب ألا تحتوي وسوم HTML');
       }
 
       const durationMs = body.durationMs === undefined ? 0 : body.durationMs;
-      if (!isBoundedInt(durationMs, 0, MAX_DURATION_MS)) return jsonError('مدة الحلقة غير صالحة');
+      if (!isBoundedInt(durationMs, 0, MAX_DURATION_MS))
+        return jsonError('مدة الحلقة غير صالحة');
 
       let publishDate: Date | undefined;
-      if (body.publishDate !== undefined && body.publishDate !== null && body.publishDate !== '') {
-        if (typeof body.publishDate !== 'string' || Number.isNaN(new Date(body.publishDate).getTime())) {
+      if (
+        body.publishDate !== undefined &&
+        body.publishDate !== null &&
+        body.publishDate !== ''
+      ) {
+        if (
+          typeof body.publishDate !== 'string' ||
+          Number.isNaN(new Date(body.publishDate).getTime())
+        ) {
           return jsonError('تاريخ النشر غير صالح');
         }
         publishDate = new Date(body.publishDate);
       }
 
-      if (body.artworkOverride !== undefined && body.artworkOverride !== null && body.artworkOverride !== '') {
-        if (typeof body.artworkOverride !== 'string' || !isSafeMediaUrl(body.artworkOverride.trim())) {
+      if (
+        body.artworkOverride !== undefined &&
+        body.artworkOverride !== null &&
+        body.artworkOverride !== ''
+      ) {
+        if (
+          typeof body.artworkOverride !== 'string' ||
+          !isSafeMediaUrl(body.artworkOverride.trim())
+        ) {
           return jsonError('رابط صورة الحلقة غير صالح');
         }
       }
@@ -457,29 +700,49 @@ export async function POST(req: Request) {
         seasonNumber: season.seasonNumber,
         episodeNumber: body.episodeNumber,
       });
-      if (duplicate) return jsonError('يوجد حلقة بنفس الرقم في هذا الموسم', 409);
+      if (duplicate)
+        return jsonError('يوجد حلقة بنفس الرقم في هذا الموسم', 409);
 
       // حفظ التجاوز الصريح فقط؛ السياسة تشتق في الواجهة والمنصة العامة
       const isFree = body.isFree === true;
 
       let audioStorageKey: string | undefined;
-      if (body.audioStorageKey !== undefined && body.audioStorageKey !== null && body.audioStorageKey !== '' && typeof body.audioStorageKey !== 'string') {
+      if (
+        body.audioStorageKey !== undefined &&
+        body.audioStorageKey !== null &&
+        body.audioStorageKey !== '' &&
+        typeof body.audioStorageKey !== 'string'
+      ) {
         return jsonError('معرف التخزين الصوتي غير صالح');
       }
-      if (typeof body.audioStorageKey === 'string' && body.audioStorageKey.trim()) {
+      if (
+        typeof body.audioStorageKey === 'string' &&
+        body.audioStorageKey.trim()
+      ) {
         const storageValidation = validateUploadFinalizeInput({
           storageKey: body.audioStorageKey,
           category: 'audio',
         });
-        if (!storageValidation.ok) return jsonError(storageValidation.error, storageValidation.status);
+        if (!storageValidation.ok)
+          return jsonError(storageValidation.error, storageValidation.status);
         audioStorageKey = storageValidation.data.storageKey;
       }
       let audioPublicUrl: string | undefined;
-      if (body.audioPublicUrl !== undefined && body.audioPublicUrl !== null && body.audioPublicUrl !== '' && typeof body.audioPublicUrl !== 'string') {
+      if (
+        body.audioPublicUrl !== undefined &&
+        body.audioPublicUrl !== null &&
+        body.audioPublicUrl !== '' &&
+        typeof body.audioPublicUrl !== 'string'
+      ) {
         return jsonError('رابط الصوت العام غير صالح');
       }
-      if (!audioStorageKey && typeof body.audioPublicUrl === 'string' && body.audioPublicUrl.trim()) {
-        if (!isSafeMediaUrl(body.audioPublicUrl.trim())) return jsonError('رابط الصوت العام غير صالح');
+      if (
+        !audioStorageKey &&
+        typeof body.audioPublicUrl === 'string' &&
+        body.audioPublicUrl.trim()
+      ) {
+        if (!isSafeMediaUrl(body.audioPublicUrl.trim()))
+          return jsonError('رابط الصوت العام غير صالح');
         audioPublicUrl = body.audioPublicUrl.trim();
       }
 
@@ -493,7 +756,11 @@ export async function POST(req: Request) {
         durationMs,
         isFree,
         publishDate,
-        artworkOverride: typeof body.artworkOverride === 'string' && body.artworkOverride.trim() ? body.artworkOverride.trim() : undefined,
+        artworkOverride:
+          typeof body.artworkOverride === 'string' &&
+          body.artworkOverride.trim()
+            ? body.artworkOverride.trim()
+            : undefined,
         audioStorageKey,
         audioPublicUrl,
       });
@@ -515,13 +782,17 @@ export async function POST(req: Request) {
         },
       });
 
-      return jsonOk({ success: true, id: episode._id.toString(), isFree: episode.isFree }, 201);
+      return jsonOk(
+        { success: true, id: episode._id.toString(), isFree: episode.isFree },
+        201,
+      );
     }
 
     // ---------- حفظ النص المتزامن (upsert) ----------
     if (entity === 'transcript') {
       const { episodeId } = body;
-      if (typeof episodeId !== 'string' || !isValidObjectId(episodeId)) return jsonError('معرّف الحلقة غير صالح');
+      if (typeof episodeId !== 'string' || !isValidObjectId(episodeId))
+        return jsonError('معرّف الحلقة غير صالح');
       const episode = await Episode.findById(episodeId);
       if (!episode) return jsonError('الحلقة غير موجودة', 404);
 
@@ -531,7 +802,7 @@ export async function POST(req: Request) {
       await Transcript.findOneAndUpdate(
         { episodeId: new Types.ObjectId(episodeId) },
         { segments: validated.segments, format: 'JSON' },
-        { upsert: true, new: true, setDefaultsOnInsert: true }
+        { upsert: true, new: true, setDefaultsOnInsert: true },
       );
 
       await writeAudit({
@@ -539,10 +810,16 @@ export async function POST(req: Request) {
         action: 'UPSERT_TRANSCRIPT',
         targetEntity: 'Transcript',
         entityId: episodeId,
-        newState: { segmentsCount: validated.segments.length, lastEndMs: validated.lastEndMs },
+        newState: {
+          segmentsCount: validated.segments.length,
+          lastEndMs: validated.lastEndMs,
+        },
       });
 
-      return jsonOk({ success: true, segmentsCount: validated.segments.length });
+      return jsonOk({
+        success: true,
+        segmentsCount: validated.segments.length,
+      });
     }
 
     return jsonError('نوع الكيان غير معروف', 400);
@@ -562,7 +839,8 @@ export async function POST(req: Request) {
 export async function PATCH(req: Request) {
   const admin = await getCurrentAdmin();
   if (!admin) return jsonError('غير مصرح لك', 401);
-  if (!checkAdminRole(admin)) return jsonError('ليس لديك صلاحية تعديل المحتوى', 403);
+  if (!checkAdminRole(admin))
+    return jsonError('ليس لديك صلاحية تعديل المحتوى', 403);
 
   const conn = await connectDB();
   if (!conn) return jsonError('قاعدة البيانات غير متاحة', 503);
@@ -577,7 +855,8 @@ export async function PATCH(req: Request) {
     // ---------- تحديث مسلسل ----------
     if (entity === 'series') {
       const { seriesId } = body;
-      if (typeof seriesId !== 'string' || !isValidObjectId(seriesId)) return jsonError('معرّف المسلسل غير صالح');
+      if (typeof seriesId !== 'string' || !isValidObjectId(seriesId))
+        return jsonError('معرّف المسلسل غير صالح');
       const series = await Series.findById(seriesId);
       if (!series) return jsonError('المسلسل غير موجود', 404);
 
@@ -585,43 +864,67 @@ export async function PATCH(req: Request) {
       const updates: Record<string, unknown> = {};
 
       if (body.title !== undefined) {
-        if (!isNonEmptyString(body.title, 1, MAX_SERIES_TITLE)) return jsonError('عنوان المسلسل مطلوب (حتى 150 حرفاً)');
+        if (!isNonEmptyString(body.title, 1, MAX_SERIES_TITLE))
+          return jsonError('عنوان المسلسل مطلوب (حتى 150 حرفاً)');
         updates.title = stripControlChars(body.title).trim();
-        if (containsHtml(updates.title as string)) return jsonError('العنوان يجب ألا يحتوي وسوم HTML');
+        if (containsHtml(updates.title as string))
+          return jsonError('العنوان يجب ألا يحتوي وسوم HTML');
       }
 
       if (body.slug !== undefined) {
         const slug = slugify(typeof body.slug === 'string' ? body.slug : '');
-        if (!slug || slug.length > MAX_SLUG) return jsonError('المعرّف (slug) غير صالح');
+        if (!slug || slug.length > MAX_SLUG)
+          return jsonError('المعرّف (slug) غير صالح');
         updates.slug = slug;
       }
 
       if (body.hook !== undefined) {
-        if (!isNonEmptyString(body.hook, 1, MAX_HOOK)) return jsonError('الجملة التسويقية مطلوبة (حتى 300 حرف)');
+        if (!isNonEmptyString(body.hook, 1, MAX_HOOK))
+          return jsonError('الجملة التسويقية مطلوبة (حتى 300 حرف)');
         updates.hook = stripControlChars(body.hook).trim();
-        if (containsHtml(updates.hook as string)) return jsonError('الجملة التسويقية يجب ألا تحتوي وسوم HTML');
+        if (containsHtml(updates.hook as string))
+          return jsonError('الجملة التسويقية يجب ألا تحتوي وسوم HTML');
       }
 
       if (body.description !== undefined) {
-        if (!isNonEmptyString(body.description, 1, MAX_DESCRIPTION)) return jsonError('الوصف مطلوب (حتى 5000 حرف)');
+        if (!isNonEmptyString(body.description, 1, MAX_DESCRIPTION))
+          return jsonError('الوصف مطلوب (حتى 5000 حرف)');
         updates.description = stripControlChars(body.description).trim();
-        if (containsHtml(updates.description as string)) return jsonError('الوصف يجب ألا يحتوي وسوم HTML');
+        if (containsHtml(updates.description as string))
+          return jsonError('الوصف يجب ألا يحتوي وسوم HTML');
       }
 
       if (body.posterUrl !== undefined) {
-        if (typeof body.posterUrl !== 'string' || !isSafeMediaUrl(body.posterUrl.trim())) return jsonError('رابط صورة الغلاف غير صالح');
-        updates.posterUrl = mediaUrlFromStorageKey(normalizeMediaUrl(body.posterUrl.trim()), getPublicPlatformOrigin());
+        if (
+          typeof body.posterUrl !== 'string' ||
+          !isSafeMediaUrl(body.posterUrl.trim())
+        )
+          return jsonError('رابط صورة الغلاف غير صالح');
+        updates.posterUrl = mediaUrlFromStorageKey(
+          normalizeMediaUrl(body.posterUrl.trim()),
+          getPublicPlatformOrigin(),
+        );
       }
 
       if (body.heroArtworkUrl !== undefined) {
-        if (typeof body.heroArtworkUrl !== 'string' || !isSafeMediaUrl(body.heroArtworkUrl.trim())) return jsonError('رابط صورة الواجهة غير صالح');
-        updates.heroArtworkUrl = mediaUrlFromStorageKey(normalizeMediaUrl(body.heroArtworkUrl.trim()), getPublicPlatformOrigin());
+        if (
+          typeof body.heroArtworkUrl !== 'string' ||
+          !isSafeMediaUrl(body.heroArtworkUrl.trim())
+        )
+          return jsonError('رابط صورة الواجهة غير صالح');
+        updates.heroArtworkUrl = mediaUrlFromStorageKey(
+          normalizeMediaUrl(body.heroArtworkUrl.trim()),
+          getPublicPlatformOrigin(),
+        );
       }
 
       if (body.shareVideoUrl !== undefined) {
         if (body.shareVideoUrl === null || body.shareVideoUrl === '') {
           updates.shareVideoUrl = undefined;
-        } else if (typeof body.shareVideoUrl !== 'string' || !isSafeMediaUrl(body.shareVideoUrl.trim())) {
+        } else if (
+          typeof body.shareVideoUrl !== 'string' ||
+          !isSafeMediaUrl(body.shareVideoUrl.trim())
+        ) {
           return jsonError('رابط فيديو المشاركة غير صالح');
         } else {
           updates.shareVideoUrl = body.shareVideoUrl.trim();
@@ -634,55 +937,88 @@ export async function PATCH(req: Request) {
         updates.genres = genres;
       }
 
+      if (body.categoryIds !== undefined) {
+        const categoryResult = await validateCategoryIds(body.categoryIds);
+
+        if (!categoryResult.ok) {
+          return jsonError(categoryResult.error);
+        }
+
+        updates.categoryIds = categoryResult.categoryIds;
+      }
+
       if (body.contentWarnings !== undefined) {
-        const contentWarnings = parseStringArray(body.contentWarnings, MAX_WARNINGS, 100);
-        if (contentWarnings === null) return jsonError('تحذيرات المحتوى غير صالحة');
+        const contentWarnings = parseStringArray(
+          body.contentWarnings,
+          MAX_WARNINGS,
+          100,
+        );
+        if (contentWarnings === null)
+          return jsonError('تحذيرات المحتوى غير صالحة');
         updates.contentWarnings = contentWarnings;
       }
 
       if (body.contentRating !== undefined) {
-        if (typeof body.contentRating !== 'string' || !CONTENT_RATINGS.includes(body.contentRating)) {
+        if (
+          typeof body.contentRating !== 'string' ||
+          !CONTENT_RATINGS.includes(body.contentRating)
+        ) {
           return jsonError('تصنيف العمر غير صالح');
         }
         updates.contentRating = body.contentRating;
       }
 
       if (body.productionYear !== undefined) {
-        if (!isBoundedInt(body.productionYear, 1900, 2100)) return jsonError('سنة الإنتاج يجب أن بين 1900 و 2100');
+        if (!isBoundedInt(body.productionYear, 1900, 2100))
+          return jsonError('سنة الإنتاج يجب أن بين 1900 و 2100');
         updates.productionYear = body.productionYear;
       }
 
       if (body.freeEpisodesCount !== undefined) {
-        if (!isBoundedInt(body.freeEpisodesCount, 0, 10)) return jsonError('عدد الحلقات المجانية يجب أن بين 0 و 10');
+        if (!isBoundedInt(body.freeEpisodesCount, 0, 10))
+          return jsonError('عدد الحلقات المجانية يجب أن بين 0 و 10');
         updates.freeEpisodesCount = body.freeEpisodesCount;
       }
 
       if (body.featured !== undefined) {
-        if (typeof body.featured !== 'boolean') return jsonError('قيمة الإبراز غير صالحة');
+        if (typeof body.featured !== 'boolean')
+          return jsonError('قيمة الإبراز غير صالحة');
         updates.featured = body.featured;
       }
 
       if (body.isCompleted !== undefined) {
-        if (typeof body.isCompleted !== 'boolean') return jsonError('قيمة الاكتمال غير صالحة');
+        if (typeof body.isCompleted !== 'boolean')
+          return jsonError('قيمة الاكتمال غير صالحة');
         updates.isCompleted = body.isCompleted;
       }
 
       let publishAction: 'PUBLISH_SERIES' | 'UNPUBLISH_SERIES' | null = null;
       if (body.published !== undefined) {
-        if (typeof body.published !== 'boolean') return jsonError('قيمة النشر غير صالحة');
-        updates.publishedAt = body.published ? (series.publishedAt || new Date()) : null;
+        if (typeof body.published !== 'boolean')
+          return jsonError('قيمة النشر غير صالحة');
+        updates.publishedAt = body.published
+          ? series.publishedAt || new Date()
+          : null;
         publishAction = body.published ? 'PUBLISH_SERIES' : 'UNPUBLISH_SERIES';
       }
 
-      if (Object.keys(updates).length === 0) return jsonError('لا توجد حقول للتحديث', 400);
+      if (Object.keys(updates).length === 0)
+        return jsonError('لا توجد حقول للتحديث', 400);
 
       if (updates.slug !== undefined && updates.slug !== series.slug) {
-        const duplicate = await Series.exists({ slug: updates.slug, _id: { $ne: series._id } });
-        if (duplicate) return jsonError('المعرّف (slug) مستخدم مسبقاً لمسلسل آخر', 409);
+        const duplicate = await Series.exists({
+          slug: updates.slug,
+          _id: { $ne: series._id },
+        });
+        if (duplicate)
+          return jsonError('المعرّف (slug) مستخدم مسبقاً لمسلسل آخر', 409);
       }
 
       const mediaUpdates = buildSeriesMediaUpdates(updates);
-      const replacedMediaKeys = collectReplacedSeriesMediaKeys(series, mediaUpdates);
+      const replacedMediaKeys = collectReplacedSeriesMediaKeys(
+        series,
+        mediaUpdates,
+      );
 
       for (const [key, value] of Object.entries(updates)) {
         (series as any)[key] = value;
@@ -705,57 +1041,91 @@ export async function PATCH(req: Request) {
         },
       });
 
-      return jsonOk({ success: true, series: seriesSummary(series), storageCleanup });
+      return jsonOk({
+        success: true,
+        series: seriesSummary(series),
+        storageCleanup,
+      });
     }
 
     // ---------- تحديث موسم ----------
     if (entity === 'season') {
       const { seasonId } = body;
-      if (typeof seasonId !== 'string' || !isValidObjectId(seasonId)) return jsonError('معرّف الموسم غير صالح');
+      if (typeof seasonId !== 'string' || !isValidObjectId(seasonId))
+        return jsonError('معرّف الموسم غير صالح');
       const season = await Season.findById(seasonId);
       if (!season) return jsonError('الموسم غير موجود', 404);
 
-      const before = { seasonNumber: season.seasonNumber, title: season.title, description: season.description, price: season.price, currency: season.currency, releaseStatus: season.releaseStatus };
+      const before = {
+        seasonNumber: season.seasonNumber,
+        title: season.title,
+        description: season.description,
+        price: season.price,
+        currency: season.currency,
+        releaseStatus: season.releaseStatus,
+      };
       const updates: Record<string, unknown> = {};
 
       if (body.seasonNumber !== undefined) {
-        if (!isBoundedInt(body.seasonNumber, 1, 100)) return jsonError('رقم الموسم يجب أن بين 1 و 100');
+        if (!isBoundedInt(body.seasonNumber, 1, 100))
+          return jsonError('رقم الموسم يجب أن بين 1 و 100');
         updates.seasonNumber = body.seasonNumber;
       }
       if (body.title !== undefined) {
-        if (!isNonEmptyString(body.title, 1, MAX_SEASON_TITLE)) return jsonError('عنوان الموسم مطلوب (حتى 150 حرفاً)');
+        if (!isNonEmptyString(body.title, 1, MAX_SEASON_TITLE))
+          return jsonError('عنوان الموسم مطلوب (حتى 150 حرفاً)');
         updates.title = stripControlChars(body.title).trim();
-        if (containsHtml(updates.title as string)) return jsonError('العنوان يجب ألا يحتوي وسوم HTML');
+        if (containsHtml(updates.title as string))
+          return jsonError('العنوان يجب ألا يحتوي وسوم HTML');
       }
       if (body.description !== undefined) {
         if (body.description === null || body.description === '') {
           updates.description = undefined;
         } else {
-          if (!isNonEmptyString(body.description, 1, 2000)) return jsonError('وصف الموسم يجب أن بين 1 و 2000 حرف');
+          if (!isNonEmptyString(body.description, 1, 2000))
+            return jsonError('وصف الموسم يجب أن بين 1 و 2000 حرف');
           updates.description = stripControlChars(body.description).trim();
-          if (containsHtml(updates.description as string)) return jsonError('الوصف يجب ألا يحتوي وسوم HTML');
+          if (containsHtml(updates.description as string))
+            return jsonError('الوصف يجب ألا يحتوي وسوم HTML');
         }
       }
       if (body.releaseStatus !== undefined) {
-        if (typeof body.releaseStatus !== 'string' || !RELEASE_STATUSES.includes(body.releaseStatus)) {
+        if (
+          typeof body.releaseStatus !== 'string' ||
+          !RELEASE_STATUSES.includes(body.releaseStatus)
+        ) {
           return jsonError('حالة الإصدار غير صالحة');
         }
         updates.releaseStatus = body.releaseStatus;
       }
       if (body.price !== undefined) {
-        if (!isBoundedNumber(body.price, 0.01, 10000)) return jsonError('السعر يجب أن يكون بين 0.01 و 10000');
+        if (!isBoundedNumber(body.price, 0.01, 10000))
+          return jsonError('السعر يجب أن يكون بين 0.01 و 10000');
         updates.price = body.price;
       }
       if (body.currency !== undefined) {
-        if (typeof body.currency !== 'string' || !CURRENCIES.includes(body.currency)) return jsonError('العملة غير مدعومة حالياً');
+        if (
+          typeof body.currency !== 'string' ||
+          !CURRENCIES.includes(body.currency)
+        )
+          return jsonError('العملة غير مدعومة حالياً');
         updates.currency = body.currency;
       }
 
-      if (Object.keys(updates).length === 0) return jsonError('لا توجد حقول للتحديث', 400);
+      if (Object.keys(updates).length === 0)
+        return jsonError('لا توجد حقول للتحديث', 400);
 
-      if (updates.seasonNumber !== undefined && updates.seasonNumber !== season.seasonNumber) {
-        const duplicate = await Season.exists({ seriesId: season.seriesId, seasonNumber: updates.seasonNumber, _id: { $ne: season._id } });
-        if (duplicate) return jsonError('يوجد موسم بنفس الرقم لهذا المسلسل', 409);
+      if (
+        updates.seasonNumber !== undefined &&
+        updates.seasonNumber !== season.seasonNumber
+      ) {
+        const duplicate = await Season.exists({
+          seriesId: season.seriesId,
+          seasonNumber: updates.seasonNumber,
+          _id: { $ne: season._id },
+        });
+        if (duplicate)
+          return jsonError('يوجد موسم بنفس الرقم لهذا المسلسل', 409);
       }
 
       for (const [key, value] of Object.entries(updates)) {
@@ -780,13 +1150,18 @@ export async function PATCH(req: Request) {
         newState: diff?.newState ?? null,
       });
 
-      return jsonOk({ success: true, title: season.title, price: season.price });
+      return jsonOk({
+        success: true,
+        title: season.title,
+        price: season.price,
+      });
     }
 
     // ---------- تحديث حلقة ----------
     if (entity === 'episode') {
       const { episodeId } = body;
-      if (typeof episodeId !== 'string' || !isValidObjectId(episodeId)) return jsonError('معرّف الحلقة غير صالح');
+      if (typeof episodeId !== 'string' || !isValidObjectId(episodeId))
+        return jsonError('معرّف الحلقة غير صالح');
       const episode = await Episode.findById(episodeId);
       if (!episode) return jsonError('الحلقة غير موجودة', 404);
 
@@ -802,31 +1177,40 @@ export async function PATCH(req: Request) {
       const updates: Record<string, unknown> = {};
 
       if (body.episodeNumber !== undefined) {
-        if (!isBoundedInt(body.episodeNumber, 1, 1000)) return jsonError('رقم الحلقة يجب أن بين 1 و 1000');
+        if (!isBoundedInt(body.episodeNumber, 1, 1000))
+          return jsonError('رقم الحلقة يجب أن بين 1 و 1000');
         updates.episodeNumber = body.episodeNumber;
       }
       if (body.title !== undefined) {
-        if (!isNonEmptyString(body.title, 1, MAX_EPISODE_TITLE)) return jsonError('عنوان الحلقة مطلوب (حتى 150 حرفاً)');
+        if (!isNonEmptyString(body.title, 1, MAX_EPISODE_TITLE))
+          return jsonError('عنوان الحلقة مطلوب (حتى 150 حرفاً)');
         updates.title = stripControlChars(body.title).trim();
-        if (containsHtml(updates.title as string)) return jsonError('العنوان يجب ألا يحتوي وسوم HTML');
+        if (containsHtml(updates.title as string))
+          return jsonError('العنوان يجب ألا يحتوي وسوم HTML');
       }
       if (body.teaser !== undefined) {
         if (body.teaser === null || body.teaser === '') {
           updates.teaser = undefined;
         } else {
-          if (!isNonEmptyString(body.teaser, 1, MAX_TEASER)) return jsonError(`النبذة يجب أن تكون بين 1 و ${MAX_TEASER} حرفاً`);
+          if (!isNonEmptyString(body.teaser, 1, MAX_TEASER))
+            return jsonError(`النبذة يجب أن تكون بين 1 و ${MAX_TEASER} حرفاً`);
           updates.teaser = stripControlChars(body.teaser).trim();
-          if (containsHtml(updates.teaser as string)) return jsonError('النبذة يجب ألا تحتوي وسوم HTML');
+          if (containsHtml(updates.teaser as string))
+            return jsonError('النبذة يجب ألا تحتوي وسوم HTML');
         }
       }
       if (body.durationMs !== undefined) {
-        if (!isBoundedInt(body.durationMs, 0, MAX_DURATION_MS)) return jsonError('مدة الحلقة غير صالحة');
+        if (!isBoundedInt(body.durationMs, 0, MAX_DURATION_MS))
+          return jsonError('مدة الحلقة غير صالحة');
         updates.durationMs = body.durationMs;
       }
       if (body.artworkOverride !== undefined) {
         if (body.artworkOverride === null || body.artworkOverride === '') {
           updates.artworkOverride = undefined;
-        } else if (typeof body.artworkOverride !== 'string' || !isSafeMediaUrl(body.artworkOverride.trim())) {
+        } else if (
+          typeof body.artworkOverride !== 'string' ||
+          !isSafeMediaUrl(body.artworkOverride.trim())
+        ) {
           return jsonError('رابط صورة الحلقة غير صالح');
         } else {
           updates.artworkOverride = body.artworkOverride.trim();
@@ -836,7 +1220,10 @@ export async function PATCH(req: Request) {
         if (body.publishDate === null || body.publishDate === '') {
           updates.publishDate = new Date();
         } else {
-          if (typeof body.publishDate !== 'string' || Number.isNaN(new Date(body.publishDate).getTime())) {
+          if (
+            typeof body.publishDate !== 'string' ||
+            Number.isNaN(new Date(body.publishDate).getTime())
+          ) {
             return jsonError('تاريخ النشر غير صالح');
           }
           updates.publishDate = new Date(body.publishDate);
@@ -845,13 +1232,24 @@ export async function PATCH(req: Request) {
 
       // سياسة أول N حلقات مجانية محفوظة كما في المسار القديم
       if (body.isFree !== undefined) {
-        if (typeof body.isFree !== 'boolean') return jsonError('قيمة المجانية غير صالحة');
+        if (typeof body.isFree !== 'boolean')
+          return jsonError('قيمة المجانية غير صالحة');
         if (!body.isFree) {
-          const parentSeries = await Series.findById(episode.seriesId).select('freeEpisodesCount').lean();
-          const freeCount = Number((parentSeries as any)?.freeEpisodesCount || 0);
-          const effectiveNumber = updates.episodeNumber !== undefined ? (updates.episodeNumber as number) : episode.episodeNumber;
+          const parentSeries = await Series.findById(episode.seriesId)
+            .select('freeEpisodesCount')
+            .lean();
+          const freeCount = Number(
+            (parentSeries as any)?.freeEpisodesCount || 0,
+          );
+          const effectiveNumber =
+            updates.episodeNumber !== undefined
+              ? (updates.episodeNumber as number)
+              : episode.episodeNumber;
           if (effectiveNumber <= freeCount) {
-            return jsonError('هذه الحلقة ضمن العدد المجاني المحدد للمسلسل', 409);
+            return jsonError(
+              'هذه الحلقة ضمن العدد المجاني المحدد للمسلسل',
+              409,
+            );
           }
         }
         updates.isFree = body.isFree;
@@ -867,7 +1265,8 @@ export async function PATCH(req: Request) {
             storageKey: body.audioStorageKey,
             category: 'audio',
           });
-          if (!storageValidation.ok) return jsonError(storageValidation.error, storageValidation.status);
+          if (!storageValidation.ok)
+            return jsonError(storageValidation.error, storageValidation.status);
           updates.audioStorageKey = storageValidation.data.storageKey;
           // حماية الصوت: الماستر الصوتي في التخزين محمي ولا يملك رابطاً عاماً
           updates.audioPublicUrl = undefined;
@@ -881,32 +1280,50 @@ export async function PATCH(req: Request) {
           return jsonError('رابط الصوت العام غير صالح');
         } else if (typeof body.audioPublicUrl === 'string') {
           // إذا كانت الحلقة تمتلك معرف تخزين ولم يتم حذفه، يظل الرابط العام ملغياً
-          if (!episode.audioStorageKey || updates.audioStorageKey === undefined && body.audioStorageKey === null) {
-            if (!isSafeMediaUrl(body.audioPublicUrl.trim())) return jsonError('رابط الصوت العام غير صالح');
+          if (
+            !episode.audioStorageKey ||
+            (updates.audioStorageKey === undefined &&
+              body.audioStorageKey === null)
+          ) {
+            if (!isSafeMediaUrl(body.audioPublicUrl.trim()))
+              return jsonError('رابط الصوت العام غير صالح');
             updates.audioPublicUrl = body.audioPublicUrl.trim();
           }
         }
       }
 
-      if (Object.keys(updates).length === 0) return jsonError('لا توجد حقول للتحديث', 400);
+      if (Object.keys(updates).length === 0)
+        return jsonError('لا توجد حقول للتحديث', 400);
 
       if (episode.seasonNumber === undefined || episode.seasonNumber === null) {
-        const parentSeason: any = await Season.findById(episode.seasonId).select('seasonNumber').lean();
-        episode.seasonNumber = typeof parentSeason?.seasonNumber === 'number' ? parentSeason.seasonNumber : 1;
+        const parentSeason: any = await Season.findById(episode.seasonId)
+          .select('seasonNumber')
+          .lean();
+        episode.seasonNumber =
+          typeof parentSeason?.seasonNumber === 'number'
+            ? parentSeason.seasonNumber
+            : 1;
       }
 
-      if (updates.episodeNumber !== undefined && updates.episodeNumber !== episode.episodeNumber) {
+      if (
+        updates.episodeNumber !== undefined &&
+        updates.episodeNumber !== episode.episodeNumber
+      ) {
         const duplicate = await Episode.exists({
           seriesId: episode.seriesId,
           seasonNumber: episode.seasonNumber,
           episodeNumber: updates.episodeNumber,
           _id: { $ne: episode._id },
         });
-        if (duplicate) return jsonError('يوجد حلقة بنفس الرقم في هذا الموسم', 409);
+        if (duplicate)
+          return jsonError('يوجد حلقة بنفس الرقم في هذا الموسم', 409);
       }
 
       const mediaUpdates = buildEpisodeMediaUpdates(updates);
-      const replacedMediaKeys = collectReplacedEpisodeMediaKeys(episode, mediaUpdates);
+      const replacedMediaKeys = collectReplacedEpisodeMediaKeys(
+        episode,
+        mediaUpdates,
+      );
 
       for (const [key, value] of Object.entries(updates)) {
         (episode as any)[key] = value;
@@ -941,17 +1358,35 @@ export async function PATCH(req: Request) {
         },
       });
 
-      return jsonOk({ success: true, title: episode.title, isFree: episode.isFree, storageCleanup });
+      return jsonOk({
+        success: true,
+        title: episode.title,
+        isFree: episode.isFree,
+        storageCleanup,
+      });
     }
 
     // ---------- المسارات القديمة المحفوظة (بدون entity) ----------
-    const { seriesId, seasonId, episodeId, freeEpisodesCount, isFree, price } = body;
+    const { seriesId, seasonId, episodeId, freeEpisodesCount, isFree, price } =
+      body;
 
     if (seasonId !== undefined) {
-      if (seriesId !== undefined || episodeId !== undefined || freeEpisodesCount !== undefined || isFree !== undefined) {
+      if (
+        seriesId !== undefined ||
+        episodeId !== undefined ||
+        freeEpisodesCount !== undefined ||
+        isFree !== undefined
+      ) {
         return jsonError('بيانات غير صالحة', 400);
       }
-      if (typeof seasonId !== 'string' || !isValidObjectId(seasonId) || typeof price !== 'number' || !Number.isFinite(price) || price <= 0 || price > 10000) {
+      if (
+        typeof seasonId !== 'string' ||
+        !isValidObjectId(seasonId) ||
+        typeof price !== 'number' ||
+        !Number.isFinite(price) ||
+        price <= 0 ||
+        price > 10000
+      ) {
         return jsonError('بيانات غير صالحة', 400);
       }
 
@@ -971,14 +1406,23 @@ export async function PATCH(req: Request) {
         newState: { price: season.price, currency: season.currency },
       });
 
-      return jsonOk({ success: true, title: season.title, price: season.price, currency: season.currency });
+      return jsonOk({
+        success: true,
+        title: season.title,
+        price: season.price,
+        currency: season.currency,
+      });
     }
 
     if (episodeId !== undefined) {
       if (seriesId !== undefined || freeEpisodesCount !== undefined) {
         return jsonError('بيانات غير صالحة', 400);
       }
-      if (typeof episodeId !== 'string' || !isValidObjectId(episodeId) || typeof isFree !== 'boolean') {
+      if (
+        typeof episodeId !== 'string' ||
+        !isValidObjectId(episodeId) ||
+        typeof isFree !== 'boolean'
+      ) {
         return jsonError('بيانات غير صالحة', 400);
       }
 
@@ -986,7 +1430,9 @@ export async function PATCH(req: Request) {
       if (!episode) return jsonError('الحلقة غير موجودة', 404);
 
       if (!isFree) {
-        const parentSeries = await Series.findById(episode.seriesId).select('freeEpisodesCount').lean();
+        const parentSeries = await Series.findById(episode.seriesId)
+          .select('freeEpisodesCount')
+          .lean();
         const freeCount = Number((parentSeries as any)?.freeEpisodesCount || 0);
         if (episode.episodeNumber <= freeCount) {
           return jsonError('هذه الحلقة ضمن العدد المجاني المحدد للمسلسل', 409);
@@ -1006,11 +1452,21 @@ export async function PATCH(req: Request) {
         newState: { isFree },
       });
 
-      return jsonOk({ success: true, title: episode.title, isFree: episode.isFree });
+      return jsonOk({
+        success: true,
+        title: episode.title,
+        isFree: episode.isFree,
+      });
     }
 
     const count = Number(freeEpisodesCount);
-    if (typeof seriesId !== 'string' || !isValidObjectId(seriesId) || !Number.isInteger(count) || count < 0 || count > 10) {
+    if (
+      typeof seriesId !== 'string' ||
+      !isValidObjectId(seriesId) ||
+      !Number.isInteger(count) ||
+      count < 0 ||
+      count > 10
+    ) {
       return jsonError('بيانات غير صالحة', 400);
     }
 
@@ -1047,7 +1503,8 @@ export async function PATCH(req: Request) {
 export async function DELETE(req: Request) {
   const admin = await getCurrentAdmin();
   if (!admin) return jsonError('غير مصرح لك', 401);
-  if (!checkAdminRole(admin)) return jsonError('ليس لديك صلاحية تعديل المحتوى', 403);
+  if (!checkAdminRole(admin))
+    return jsonError('ليس لديك صلاحية تعديل المحتوى', 403);
 
   const conn = await connectDB();
   if (!conn) return jsonError('قاعدة البيانات غير متاحة', 503);
@@ -1055,8 +1512,13 @@ export async function DELETE(req: Request) {
   const url = new URL(req.url);
   let entity = url.searchParams.get('entity');
   let id = url.searchParams.get('id');
-  const cascade = url.searchParams.get('cascade') === 'true' || url.searchParams.get('cascade') === '1';
-  const deleteTranscript = url.searchParams.get('deleteTranscript') === 'true' || url.searchParams.get('deleteTranscript') === '1' || cascade;
+  const cascade =
+    url.searchParams.get('cascade') === 'true' ||
+    url.searchParams.get('cascade') === '1';
+  const deleteTranscript =
+    url.searchParams.get('deleteTranscript') === 'true' ||
+    url.searchParams.get('deleteTranscript') === '1' ||
+    cascade;
 
   if (!entity) {
     if (url.searchParams.get('seriesId')) {
@@ -1077,13 +1539,20 @@ export async function DELETE(req: Request) {
   try {
     // ---------- حذف مسلسل ----------
     if (entity === 'series') {
-      if (!id || !isValidObjectId(id)) return jsonError('معرّف المسلسل غير صالح', 400);
+      if (!id || !isValidObjectId(id))
+        return jsonError('معرّف المسلسل غير صالح', 400);
       const series = await Series.findById(id);
       if (!series) return jsonError('المسلسل غير موجود', 404);
 
-      const seasons = await Season.find({ seriesId: series._id }).select('_id').lean();
+      const seasons = await Season.find({ seriesId: series._id })
+        .select('_id')
+        .lean();
       if (seasons.length > 0 && !cascade) {
-        return jsonError('لا يمكن حذف مسلسل يحتوي مواسم — فعّل الحذف الشامل', 409, { seasonsCount: seasons.length });
+        return jsonError(
+          'لا يمكن حذف مسلسل يحتوي مواسم — فعّل الحذف الشامل',
+          409,
+          { seasonsCount: seasons.length },
+        );
       }
 
       // السجلات المالية والاستحقاقات لا تُحذف مع المحتوى؛ امنع إزالة أصل
@@ -1093,10 +1562,14 @@ export async function DELETE(req: Request) {
         Entitlement.countDocuments({ targetSeriesId: series._id }),
       ]);
       if (purchaseCount > 0 || entitlementCount > 0) {
-        return jsonError('لا يمكن حذف مسلسل له مشتريات أو استحقاقات — قم بإلغاء النشر بدلاً من ذلك', 409, {
-          purchaseCount,
-          entitlementCount,
-        });
+        return jsonError(
+          'لا يمكن حذف مسلسل له مشتريات أو استحقاقات — قم بإلغاء النشر بدلاً من ذلك',
+          409,
+          {
+            purchaseCount,
+            entitlementCount,
+          },
+        );
       }
 
       const seasonIds = seasons.map((s: any) => s._id);
@@ -1104,21 +1577,39 @@ export async function DELETE(req: Request) {
         .select('_id audioStorageKey audioPublicUrl artworkOverride')
         .lean();
       const episodeIds = episodes.map((e: any) => e._id);
-      const shareAssets = await ShareAsset.find({ seriesId: series._id }).select('storageKey publicUrl').lean();
-      const mediaKeys = collectMediaKeysFromRecord(series, ['posterUrl', 'heroArtworkUrl', 'shareVideoUrl']);
+      const shareAssets = await ShareAsset.find({ seriesId: series._id })
+        .select('storageKey publicUrl')
+        .lean();
+      const mediaKeys = collectMediaKeysFromRecord(series, [
+        'posterUrl',
+        'heroArtworkUrl',
+        'shareVideoUrl',
+      ]);
       for (const episode of episodes as any[]) {
-        mergeMediaKeys(mediaKeys, collectMediaKeysFromRecord(episode, ['audioStorageKey', 'audioPublicUrl', 'artworkOverride']));
+        mergeMediaKeys(
+          mediaKeys,
+          collectMediaKeysFromRecord(episode, [
+            'audioStorageKey',
+            'audioPublicUrl',
+            'artworkOverride',
+          ]),
+        );
       }
       for (const shareAsset of shareAssets as any[]) {
-        mergeMediaKeys(mediaKeys, collectMediaKeysFromRecord(shareAsset, ['storageKey', 'publicUrl']));
+        mergeMediaKeys(
+          mediaKeys,
+          collectMediaKeysFromRecord(shareAsset, ['storageKey', 'publicUrl']),
+        );
       }
-      const deletedTranscripts = await Transcript.deleteMany({ episodeId: { $in: episodeIds } });
+      const deletedTranscripts = await Transcript.deleteMany({
+        episodeId: { $in: episodeIds },
+      });
       await Episode.deleteMany({ seriesId: series._id });
       await Season.deleteMany({ _id: { $in: seasonIds } });
       await ShareAsset.deleteMany({ seriesId: series._id });
       await HomepageSection.updateMany(
         { manualSeriesIds: series._id },
-        { $pull: { manualSeriesIds: series._id } }
+        { $pull: { manualSeriesIds: series._id } },
       );
       await series.deleteOne();
 
@@ -1145,7 +1636,8 @@ export async function DELETE(req: Request) {
 
     // ---------- حذف موسم ----------
     if (entity === 'season') {
-      if (!id || !isValidObjectId(id)) return jsonError('معرّف الموسم غير صالح', 400);
+      if (!id || !isValidObjectId(id))
+        return jsonError('معرّف الموسم غير صالح', 400);
       const season = await Season.findById(id);
       if (!season) return jsonError('الموسم غير موجود', 404);
 
@@ -1153,7 +1645,11 @@ export async function DELETE(req: Request) {
         .select('_id audioStorageKey audioPublicUrl artworkOverride')
         .lean();
       if (episodes.length > 0 && !cascade) {
-        return jsonError('لا يمكن حذف موسم يحتوي حلقات — فعّل الحذف الشامل لإزالة الحلقات ونصوصها أيضاً', 409, { episodesCount: episodes.length });
+        return jsonError(
+          'لا يمكن حذف موسم يحتوي حلقات — فعّل الحذف الشامل لإزالة الحلقات ونصوصها أيضاً',
+          409,
+          { episodesCount: episodes.length },
+        );
       }
 
       const [purchaseCount, entitlementCount] = await Promise.all([
@@ -1161,18 +1657,31 @@ export async function DELETE(req: Request) {
         Entitlement.countDocuments({ targetSeasonId: season._id }),
       ]);
       if (purchaseCount > 0 || entitlementCount > 0) {
-        return jsonError('لا يمكن حذف موسم له مشتريات أو استحقاقات — اجعله غير متاح بدلاً من ذلك', 409, {
-          purchaseCount,
-          entitlementCount,
-        });
+        return jsonError(
+          'لا يمكن حذف موسم له مشتريات أو استحقاقات — اجعله غير متاح بدلاً من ذلك',
+          409,
+          {
+            purchaseCount,
+            entitlementCount,
+          },
+        );
       }
 
       const episodeIds = episodes.map((e: any) => e._id);
       const mediaKeys = new Set<string>();
       for (const episode of episodes as any[]) {
-        mergeMediaKeys(mediaKeys, collectMediaKeysFromRecord(episode, ['audioStorageKey', 'audioPublicUrl', 'artworkOverride']));
+        mergeMediaKeys(
+          mediaKeys,
+          collectMediaKeysFromRecord(episode, [
+            'audioStorageKey',
+            'audioPublicUrl',
+            'artworkOverride',
+          ]),
+        );
       }
-      const deletedTranscripts = await Transcript.deleteMany({ episodeId: { $in: episodeIds } });
+      const deletedTranscripts = await Transcript.deleteMany({
+        episodeId: { $in: episodeIds },
+      });
       await Episode.deleteMany({ _id: { $in: episodeIds } });
       await season.deleteOne();
       await syncSeriesCounters(season.seriesId.toString());
@@ -1184,7 +1693,10 @@ export async function DELETE(req: Request) {
         action: episodes.length > 0 ? 'DELETE_SEASON_CASCADE' : 'DELETE_SEASON',
         targetEntity: 'Season',
         entityId: id,
-        previousState: { seasonNumber: season.seasonNumber, title: season.title },
+        previousState: {
+          seasonNumber: season.seasonNumber,
+          title: season.title,
+        },
         newState: {
           seriesId: season.seriesId.toString(),
           deletedEpisodes: episodes.length,
@@ -1198,18 +1710,25 @@ export async function DELETE(req: Request) {
 
     // ---------- حذف حلقة ----------
     if (entity === 'episode') {
-      if (!id || !isValidObjectId(id)) return jsonError('معرّف الحلقة غير صالح', 400);
+      if (!id || !isValidObjectId(id))
+        return jsonError('معرّف الحلقة غير صالح', 400);
       const episode = await Episode.findById(id);
       if (!episode) return jsonError('الحلقة غير موجودة', 404);
 
-      const transcript = await Transcript.findOne({ episodeId: episode._id }).select('_id').lean();
+      const transcript = await Transcript.findOne({ episodeId: episode._id })
+        .select('_id')
+        .lean();
       const mediaKeys = collectMediaKeysFromRecord(episode, [
         'audioStorageKey',
         'audioPublicUrl',
         'artworkOverride',
       ]);
       if (transcript && !deleteTranscript) {
-        return jsonError('هذه الحلقة لها نص متزامن — فعّل حذف النص معها لتجنب مرجع معلق', 409, { hasTranscript: true });
+        return jsonError(
+          'هذه الحلقة لها نص متزامن — فعّل حذف النص معها لتجنب مرجع معلق',
+          409,
+          { hasTranscript: true },
+        );
       }
 
       if (transcript) {
@@ -1226,7 +1745,10 @@ export async function DELETE(req: Request) {
         action: 'DELETE_EPISODE',
         targetEntity: 'Episode',
         entityId: id,
-        previousState: { episodeNumber: episode.episodeNumber, title: episode.title },
+        previousState: {
+          episodeNumber: episode.episodeNumber,
+          title: episode.title,
+        },
         newState: { deletedTranscript: Boolean(transcript), storageCleanup },
       });
 
@@ -1235,9 +1757,13 @@ export async function DELETE(req: Request) {
 
     // ---------- حذف النص المتزامن فقط ----------
     if (entity === 'transcript') {
-      if (!id || !isValidObjectId(id)) return jsonError('معرّف الحلقة غير صالح', 400);
-      const deleted = await Transcript.deleteMany({ episodeId: new Types.ObjectId(id) });
-      if (deleted.deletedCount === 0) return jsonError('لا يوجد نص متزامن لهذه الحلقة', 404);
+      if (!id || !isValidObjectId(id))
+        return jsonError('معرّف الحلقة غير صالح', 400);
+      const deleted = await Transcript.deleteMany({
+        episodeId: new Types.ObjectId(id),
+      });
+      if (deleted.deletedCount === 0)
+        return jsonError('لا يوجد نص متزامن لهذه الحلقة', 404);
 
       await writeAudit({
         adminUserId: admin.userId,
