@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { FolderTree, Plus, Pencil, Trash2, Loader2, X } from 'lucide-react';
 import { adminApi } from '../cms/shared';
 import { MediaUploadDropzone } from '../cms/MediaUploadDropzone';
@@ -28,7 +28,7 @@ export default function AdminCategoriesView({ showNotice }) {
   const [deletingId, setDeletingId] = useState(null);
   const [categoryToDelete, setCategoryToDelete] = useState(null);
 
-  const loadCategories = async () => {
+  const loadCategories = useCallback(async () => {
     setIsLoading(true);
 
     const result = await adminApi('/api/v1/admin/categories');
@@ -43,11 +43,11 @@ export default function AdminCategoriesView({ showNotice }) {
       Array.isArray(result.data.categories) ? result.data.categories : [],
     );
     setIsLoading(false);
-  };
+  }, [showNotice]);
 
   useEffect(() => {
     loadCategories();
-  }, []);
+  }, [loadCategories]);
 
   const setField = (field, value) => {
     setForm((current) => ({

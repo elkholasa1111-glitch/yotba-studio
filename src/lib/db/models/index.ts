@@ -298,6 +298,16 @@ const SavedEpisodeSchema = new Schema(
 );
 SavedEpisodeSchema.index({ userId: 1, episodeId: 1 }, { unique: true });
 
+// يطابق نموذج المنصة العامة حتى تظل تعريفات Mongo المشتركة متوافقة.
+const SavedSeriesSchema = new Schema(
+  {
+    userId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+    seriesId: { type: Schema.Types.ObjectId, ref: 'Series', required: true },
+  },
+  { timestamps: { createdAt: true, updatedAt: false } }
+);
+SavedSeriesSchema.index({ userId: 1, seriesId: 1 }, { unique: true });
+
 const ListenLaterSchema = new Schema(
   {
     userId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
@@ -544,6 +554,7 @@ export const Subscription = models.Subscription || model('Subscription', Subscri
 export const ListeningProgress = models.ListeningProgress || model('ListeningProgress', ListeningProgressSchema);
 export const Favorite = models.Favorite || model('Favorite', FavoriteSchema);
 export const SavedEpisode = models.SavedEpisode || model('SavedEpisode', SavedEpisodeSchema);
+export const SavedSeries = models.SavedSeries || model('SavedSeries', SavedSeriesSchema);
 export const ListenLater = models.ListenLater || model('ListenLater', ListenLaterSchema);
 export const Like = models.Like || model('Like', LikeSchema);
 export const Comment = models.Comment || model('Comment', CommentSchema);

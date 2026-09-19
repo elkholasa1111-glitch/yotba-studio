@@ -6,12 +6,8 @@ import {
   Plus,
   Pencil,
   Trash2,
-  Layers,
   Star,
-  Eye,
-  Check,
   Search,
-  ExternalLink,
   Radio,
 } from 'lucide-react';
 import type { AdminSeriesDTO } from '../cms/shared';
@@ -28,7 +24,6 @@ interface Props {
   initialEpisodeId?: string | null;
   onRefresh: () => Promise<void>;
   showNotice: (type: 'success' | 'error', msg: string) => void;
-  onManageSeasons: (seriesId: string) => void;
 }
 
 export const AdminSeriesView: React.FC<Props> = ({
@@ -38,7 +33,6 @@ export const AdminSeriesView: React.FC<Props> = ({
   initialEpisodeId,
   onRefresh,
   showNotice,
-  onManageSeasons,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [studioSeriesId, setStudioSeriesId] = useState<string | null>(initialSeriesId || null);
@@ -223,51 +217,41 @@ export const AdminSeriesView: React.FC<Props> = ({
                   </span>
                 </div>
 
-                <div className="w-full sm:w-auto flex flex-wrap items-center justify-end gap-1.5">
+                <div className="grid w-full grid-cols-3 gap-2 sm:w-auto sm:flex sm:items-center sm:justify-end">
                   {/* فتح استوديو المسلسل والمواسم والحلقات */}
                   <button
                     type="button"
                     onClick={() => setStudioSeriesId(series._id)}
-                    className="min-h-11 px-2.5 rounded-lg bg-crimson/15 hover:bg-crimson text-crimson hover:text-white border border-crimson/30 hover:border-crimson text-xs font-bold flex items-center gap-1.5 transition-all shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson"
+                    className="col-span-1 min-h-11 px-3 rounded-lg bg-crimson hover:bg-crimson-bright text-white border border-crimson text-xs font-bold flex items-center justify-center gap-1.5 transition-all shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson"
                     title="فتح استوديو العمل والمواسم والحلقات"
                     aria-label={`استوديو ${series.title}`}
                   >
-                    <Radio size={13} />
-                    <span>استوديو العمل</span>
-                  </button>
-
-                  {/* الانتقال المباشر لإدارة مواسم هذا العمل */}
-                  <button
-                    type="button"
-                    onClick={() => onManageSeasons(series._id)}
-                    className="min-h-11 px-2.5 rounded-lg bg-surface hover:bg-surface-elevated border border-border-subtle text-editorial-secondary hover:text-editorial-ivory text-xs flex items-center gap-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson"
-                    title="إدارة مواسم وحلقات هذا العمل"
-                    aria-label={`مواسم ${series.title}`}
-                  >
-                    <Layers size={13} className="text-amber-400" />
-                    <span>المواسم</span>
+                    <Radio size={14} />
+                    <span>إدارة العمل</span>
                   </button>
 
                   {/* تعديل المسلسل */}
                   <button
                     type="button"
                     onClick={() => setEditingSeries(series)}
-                    className="min-w-11 min-h-11 rounded-lg bg-surface hover:bg-surface-elevated border border-border-subtle text-editorial-secondary hover:text-editorial-ivory flex items-center justify-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson"
+                    className="min-h-11 px-3 rounded-lg bg-surface hover:bg-surface-elevated border border-border-subtle text-editorial-secondary hover:text-editorial-ivory text-xs font-bold flex items-center justify-center gap-1.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson"
                     title="تعديل بيانات وغلاف العمل"
                     aria-label={`تعديل ${series.title}`}
                   >
-                    <Pencil size={13} />
+                    <Pencil size={14} />
+                    <span>تعديل</span>
                   </button>
 
                   {/* حذف المسلسل */}
                   <button
                     type="button"
                     onClick={() => setDeletingSeries(series)}
-                    className="min-w-11 min-h-11 rounded-lg bg-surface hover:bg-red-950/40 border border-border-subtle hover:border-red-800 text-editorial-secondary hover:text-red-300 flex items-center justify-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300"
+                    className="min-h-11 px-3 rounded-lg bg-red-950/20 hover:bg-red-950/50 border border-red-900/60 hover:border-red-700 text-red-300 hover:text-red-200 text-xs font-bold flex items-center justify-center gap-1.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300"
                     title="حذف المسلسل بالكامل"
                     aria-label={`حذف ${series.title}`}
                   >
-                    <Trash2 size={13} />
+                    <Trash2 size={14} />
+                    <span>حذف</span>
                   </button>
                 </div>
               </div>

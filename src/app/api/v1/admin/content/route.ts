@@ -266,6 +266,13 @@ export async function GET(req: Request) {
     return jsonError('غير مصرح لك', 401);
   }
 
+  if (!checkAdminRole(admin)) {
+    return jsonError(
+      'ليس لديك صلاحية قراءة محتوى التحرير (مطلوب CONTENT_EDITOR أو ADMIN أو SUPER_ADMIN)',
+      403,
+    );
+  }
+
   const conn = await connectDB();
   if (!conn) {
     return jsonError('قاعدة البيانات غير متاحة حالياً', 503);

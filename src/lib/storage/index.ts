@@ -1035,7 +1035,16 @@ export class StorageService {
     );
 
     const results = await Promise.all(
-      uniqueKeys.map(async (key) => ({ key, success: await StorageService.deleteMedia(key) }))
+      uniqueKeys.map(async (key) => {
+        let success = false;
+        for (let attempt = 1; attempt <= 3 && !success; attempt += 1) {
+          success = await StorageService.deleteMedia(key);
+          if (!success && attempt < 3) {
+            await new Promise((resolve) => setTimeout(resolve, attempt * 150));
+          }
+        }
+        return { key, success };
+      })
     );
     const deletedKeys = results.filter((result) => result.success).map((result) => result.key);
     const failedKeys = results.filter((result) => !result.success).map((result) => result.key);

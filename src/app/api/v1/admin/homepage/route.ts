@@ -99,12 +99,38 @@ function sanitizeSectionDto(doc: any) {
   };
 }
 
-/** إعادة التحقق الآمن من كاش الصفحة الرئيسية العامة */
-function triggerHomepageRevalidation() {
+/** إعادة التحقق من كاش Studio ثم إخطار مشروع المنصة العامة المنفصل. */
+async function triggerHomepageRevalidation() {
   try {
     revalidatePath('/');
   } catch (error) {
-    console.warn('Homepage revalidation skipped or failed:', error);
+    console.warn('Studio homepage revalidation skipped or failed:', error);
+  }
+
+  const secret = process.env.HOMEPAGE_REVALIDATE_SECRET?.trim();
+  if (!secret) {
+    console.warn('Public homepage revalidation skipped: missing secret');
+    return;
+  }
+
+  try {
+    const response = await fetch(
+      `${getPublicPlatformOrigin()}/api/v1/revalidate/homepage`,
+      {
+        method: 'POST',
+        headers: { 'x-yotba-revalidate-secret': secret },
+        cache: 'no-store',
+        signal: AbortSignal.timeout(5_000),
+      },
+    );
+
+    if (!response.ok) {
+      console.warn(
+        `Public homepage revalidation returned ${response.status}`,
+      );
+    }
+  } catch (error) {
+    console.warn('Public homepage revalidation failed:', error);
   }
 }
 
@@ -386,7 +412,7 @@ export async function POST(req: Request) {
       },
     });
 
-    triggerHomepageRevalidation();
+    await triggerHomepageRevalidation();
 
     const populated = await HomepageSection.findById(created._id)
       .populate('manualSeriesIds', 'title slug posterUrl')
@@ -489,7 +515,7 @@ export async function PATCH(req: Request) {
         newState: { count: orders.length },
       });
 
-      triggerHomepageRevalidation();
+      await triggerHomepageRevalidation();
 
       const updatedSections = await HomepageSection.find()
         .sort({ order: 1 })
@@ -747,7 +773,7 @@ export async function PATCH(req: Request) {
       },
     });
 
-    triggerHomepageRevalidation();
+    await triggerHomepageRevalidation();
 
     const populated = await HomepageSection.findById(section._id)
       .populate('manualSeriesIds', 'title slug posterUrl')
@@ -820,7 +846,7 @@ export async function DELETE(req: Request) {
       newState: null,
     });
 
-    triggerHomepageRevalidation();
+    await triggerHomepageRevalidation();
 
     return jsonOk({
       success: true,

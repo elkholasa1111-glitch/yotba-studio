@@ -288,13 +288,6 @@ export const AdminDashboardView: React.FC = () => {
   );
 
   // Seamless navigation handlers
-  const handleManageSeasons = (seriesId: string) => {
-    setNavSeriesId(seriesId);
-    setNavSeasonId(null);
-    setNavEpisodeId(null);
-    navigateToSection('seasons', true);
-  };
-
   const handleManageEpisodes = (seriesId: string, seasonId: string) => {
     setNavSeriesId(seriesId);
     setNavSeasonId(seasonId);
@@ -572,7 +565,7 @@ export const AdminDashboardView: React.FC = () => {
                 </div>
 
                 {/* Pipeline Steps Buttons */}
-                <div className="flex items-center gap-1.5 overflow-x-auto w-full md:w-auto pb-1 md:pb-0">
+                <div className="grid w-full grid-cols-2 gap-2 md:flex md:w-auto md:items-center md:gap-1.5">
                   <button
                     type="button"
                     onClick={() => navigateToSection('series')}
@@ -582,10 +575,11 @@ export const AdminDashboardView: React.FC = () => {
                         : 'bg-surface-elevated text-editorial-secondary hover:text-editorial-ivory'
                     }`}
                   >
-                    1. المسلسلات
+                    <span className="md:hidden">الخطوة 1 من 4 · </span>
+                    المسلسلات
                   </button>
                   <ChevronLeft
-                    className="w-3.5 h-3.5 text-editorial-muted shrink-0"
+                    className="hidden md:block w-3.5 h-3.5 text-editorial-muted shrink-0"
                     aria-hidden="true"
                   />
                   <button
@@ -597,10 +591,11 @@ export const AdminDashboardView: React.FC = () => {
                         : 'bg-surface-elevated text-editorial-secondary hover:text-editorial-ivory'
                     }`}
                   >
-                    2. المواسم
+                    <span className="md:hidden">الخطوة 2 من 4 · </span>
+                    المواسم
                   </button>
                   <ChevronLeft
-                    className="w-3.5 h-3.5 text-editorial-muted shrink-0"
+                    className="hidden md:block w-3.5 h-3.5 text-editorial-muted shrink-0"
                     aria-hidden="true"
                   />
                   <button
@@ -612,10 +607,11 @@ export const AdminDashboardView: React.FC = () => {
                         : 'bg-surface-elevated text-editorial-secondary hover:text-editorial-ivory'
                     }`}
                   >
-                    3. الحلقات
+                    <span className="md:hidden">الخطوة 3 من 4 · </span>
+                    الحلقات
                   </button>
                   <ChevronLeft
-                    className="w-3.5 h-3.5 text-editorial-muted shrink-0"
+                    className="hidden md:block w-3.5 h-3.5 text-editorial-muted shrink-0"
                     aria-hidden="true"
                   />
                   <button
@@ -627,7 +623,8 @@ export const AdminDashboardView: React.FC = () => {
                         : 'bg-surface-elevated text-editorial-secondary hover:text-editorial-ivory'
                     }`}
                   >
-                    4. النصوص
+                    <span className="md:hidden">الخطوة 4 من 4 · </span>
+                    النصوص
                   </button>
                 </div>
               </div>
@@ -694,7 +691,6 @@ export const AdminDashboardView: React.FC = () => {
                     initialEpisodeId={navEpisodeId}
                     onRefresh={fetchData}
                     showNotice={showNotice}
-                    onManageSeasons={handleManageSeasons}
                   />
                 )}
 
