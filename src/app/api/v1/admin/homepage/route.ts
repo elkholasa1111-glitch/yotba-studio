@@ -5,7 +5,7 @@
 import { revalidatePath } from 'next/cache';
 import { getCurrentAdmin } from '@/lib/auth';
 import { connectDB } from '@/lib/db/connect';
-import { HomepageSection, Series } from '@/lib/db/models';
+import { HomepageSection, Series, Category } from '@/lib/db/models';
 import {
   jsonOk,
   jsonError,
@@ -17,7 +17,11 @@ import {
   writeOperationsAudit,
   parseAdminJsonBody,
 } from '@/lib/admin/operations-api';
-import { getPublicPlatformOrigin, mediaUrlFromStorageKey, normalizeMediaUrl } from '@/lib/media/urls';
+import {
+  getPublicPlatformOrigin,
+  mediaUrlFromStorageKey,
+  normalizeMediaUrl,
+} from '@/lib/media/urls';
 
 const ALLOWED_LAYOUTS = [
   'FEATURE',
@@ -55,21 +59,36 @@ function sanitizeSectionDto(doc: any) {
     layout: doc.layout,
     sourceType: doc.sourceType,
     autoRule: doc.autoRule || null,
-    filterGenre: doc.filterGenre || null,
-    manualSeriesIds: (doc.manualSeriesIds || []).map((id: any) => id?.toString?.() || String(id)),
+    filterCategoryId: doc.filterCategoryId?.toString() || null,
+    manualSeriesIds: (doc.manualSeriesIds || []).map(
+      (id: any) => id?.toString?.() || String(id),
+    ),
     manualSeries: Array.isArray(doc.manualSeriesIds)
       ? doc.manualSeriesIds
-          .filter((s: any) => s && typeof s === 'object' && s._id && typeof s.title === 'string')
+          .filter(
+            (s: any) =>
+              s &&
+              typeof s === 'object' &&
+              s._id &&
+              typeof s.title === 'string',
+          )
           .map((s: any) => ({
             _id: s._id.toString(),
             title: s.title,
             slug: s.slug,
-            posterUrl: mediaUrlFromStorageKey(normalizeMediaUrl(s.posterUrl), getPublicPlatformOrigin()),
+            posterUrl: mediaUrlFromStorageKey(
+              normalizeMediaUrl(s.posterUrl),
+              getPublicPlatformOrigin(),
+            ),
           }))
       : [],
     isVisible: Boolean(doc.isVisible),
-    scheduledStart: doc.scheduledStart ? new Date(doc.scheduledStart).toISOString() : null,
-    scheduledEnd: doc.scheduledEnd ? new Date(doc.scheduledEnd).toISOString() : null,
+    scheduledStart: doc.scheduledStart
+      ? new Date(doc.scheduledStart).toISOString()
+      : null,
+    scheduledEnd: doc.scheduledEnd
+      ? new Date(doc.scheduledEnd).toISOString()
+      : null,
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
   };
@@ -97,7 +116,7 @@ export async function GET() {
   }
 
   try {
-    const [sections, rawSeries] = await Promise.all([
+    const [sections, rawSeries, rawCategories] = await Promise.all([
       HomepageSection.find()
         .sort({ order: 1, createdAt: 1 })
         .populate('manualSeriesIds', 'title slug posterUrl')
@@ -106,19 +125,33 @@ export async function GET() {
         .select('_id title slug posterUrl publishedAt')
         .sort({ title: 1 })
         .lean(),
+      Category.find()
+        .select('_id nameAr slug')
+        .sort({ order: 1, nameAr: 1 })
+        .lean(),
     ]);
 
     const seriesOptions = rawSeries.map((s: any) => ({
       _id: s._id.toString(),
       title: s.title,
       slug: s.slug,
-      posterUrl: mediaUrlFromStorageKey(normalizeMediaUrl(s.posterUrl), getPublicPlatformOrigin()),
+      posterUrl: mediaUrlFromStorageKey(
+        normalizeMediaUrl(s.posterUrl),
+        getPublicPlatformOrigin(),
+      ),
       isPublished: Boolean(s.publishedAt),
+    }));
+
+    const categoryOptions = rawCategories.map((category: any) => ({
+      _id: category._id.toString(),
+      nameAr: category.nameAr,
+      slug: category.slug,
     }));
 
     return jsonOk({
       sections: sections.map(sanitizeSectionDto),
       seriesOptions,
+      categoryOptions,
     });
   } catch (error) {
     console.error('Admin homepage sections GET error:', error);
@@ -134,7 +167,10 @@ export async function POST(req: Request) {
   }
 
   if (!canManageOperations(admin.role)) {
-    return jsonError('ليس لديك صلاحية إنشاء أقسام الصفحة الرئيسية (مطلوب ADMIN أو SUPER_ADMIN)', 403);
+    return jsonError(
+      'ليس لديك صلاحية إنشاء أقسام الصفحة الرئيسية (مطلوب ADMIN أو SUPER_ADMIN)',
+      403,
+    );
   }
 
   const conn = await connectDB();
@@ -153,9 +189,10 @@ export async function POST(req: Request) {
   const title = cleanText(body?.title);
   const subtitle = cleanText(body?.subtitle);
   const layout = cleanText(body?.layout) as SectionLayout;
-  const sourceType = (cleanText(body?.sourceType) || 'AUTOMATIC') as SectionSource;
+  const sourceType = (cleanText(body?.sourceType) ||
+    'AUTOMATIC') as SectionSource;
   const autoRule = cleanText(body?.autoRule) as SectionAutoRule;
-  const filterGenre = cleanText(body?.filterGenre);
+  const filterCategoryId = cleanText(body?.filterCategoryId);
   const isVisible = body?.isVisible === undefined ? true : body.isVisible;
 
   if (typeof isVisible !== 'boolean') {
@@ -164,16 +201,25 @@ export async function POST(req: Request) {
 
   // التحقق من المفتاح
   if (!normalizedKey || normalizedKey.length < 2) {
-    return jsonError('معرّف القسم (Key) يجب أن يحتوي على حرفين على الأقل بالإنجليزية أو أرقام', 400);
+    return jsonError(
+      'معرّف القسم (Key) يجب أن يحتوي على حرفين على الأقل بالإنجليزية أو أرقام',
+      400,
+    );
   }
 
   // التحقق من العنوان
   if (!title || title.length < 2 || title.length > 120 || containsHtml(title)) {
-    return jsonError('عنوان القسم مطلوب ويجب ألا يتجاوز 120 حرفاً وبدون وسوم HTML', 400);
+    return jsonError(
+      'عنوان القسم مطلوب ويجب ألا يتجاوز 120 حرفاً وبدون وسوم HTML',
+      400,
+    );
   }
 
   if (subtitle && (subtitle.length > 300 || containsHtml(subtitle))) {
-    return jsonError('الوصف الفرعي يجب ألا يتجاوز 300 حرف وبدون وسوم HTML', 400);
+    return jsonError(
+      'الوصف الفرعي يجب ألا يتجاوز 300 حرف وبدون وسوم HTML',
+      400,
+    );
   }
 
   // التحقق من التخطيط والمصدر
@@ -186,18 +232,31 @@ export async function POST(req: Request) {
   }
 
   if (sourceType === 'AUTOMATIC') {
-    if (!autoRule || !(ALLOWED_AUTO_RULES as readonly string[]).includes(autoRule)) {
+    if (
+      !autoRule ||
+      !(ALLOWED_AUTO_RULES as readonly string[]).includes(autoRule)
+    ) {
       return jsonError('قاعدة التغذية التلقائية المطلوبة غير صالحة', 400);
     }
-    if (autoRule === 'GENRE_FILTER' && (!filterGenre || filterGenre.length < 2)) {
-      return jsonError('يرجى تحديد التصنيف المطلوب لتصفية الأعمال', 400);
+    if (autoRule === 'GENRE_FILTER') {
+      if (!filterCategoryId || !isValidMongoId(filterCategoryId)) {
+        return jsonError('يرجى اختيار تصنيف صالح', 400);
+      }
+
+      const categoryExists = await Category.exists({ _id: filterCategoryId });
+
+      if (!categoryExists) {
+        return jsonError('التصنيف المحدد غير موجود', 404);
+      }
     }
   }
 
   // التحقق من المسلسلات اليدوية
   let manualSeriesIds: string[] = [];
   if (sourceType === 'MANUAL') {
-    const rawIds = Array.isArray(body?.manualSeriesIds) ? body.manualSeriesIds : [];
+    const rawIds = Array.isArray(body?.manualSeriesIds)
+      ? body.manualSeriesIds
+      : [];
     if (rawIds.length === 0) {
       return jsonError('يجب تحديد عمل واحد على الأقل للأقسام اليدوية', 400);
     }
@@ -205,7 +264,9 @@ export async function POST(req: Request) {
       return jsonError('لا يمكن إضافة أكثر من 30 عملاً للقسم الواحد', 400);
     }
 
-    const uniqueIds: string[] = Array.from(new Set(rawIds.map((id: any) => cleanText(id))));
+    const uniqueIds: string[] = Array.from(
+      new Set(rawIds.map((id: any) => cleanText(id))),
+    );
     for (const sId of uniqueIds) {
       if (!isValidMongoId(sId)) {
         return jsonError(`معرّف العمل ${sId} غير صالح`, 400);
@@ -213,7 +274,9 @@ export async function POST(req: Request) {
     }
 
     // التحقق من وجود جميع المسلسلات المحددة في قاعدة البيانات
-    const existingSeries = await Series.find({ _id: { $in: uniqueIds } }).select('_id').lean();
+    const existingSeries = await Series.find({ _id: { $in: uniqueIds } })
+      .select('_id')
+      .lean();
     if (existingSeries.length !== uniqueIds.length) {
       return jsonError('بعض الأعمال المحددة غير موجودة في قاعدة البيانات', 400);
     }
@@ -246,17 +309,28 @@ export async function POST(req: Request) {
     scheduledEnd = eDate;
   }
 
-  if (scheduledStart && scheduledEnd && scheduledStart.getTime() >= scheduledEnd.getTime()) {
+  if (
+    scheduledStart &&
+    scheduledEnd &&
+    scheduledStart.getTime() >= scheduledEnd.getTime()
+  ) {
     return jsonError('تاريخ بداية العرض يجب أن يسبق تاريخ النهاية', 400);
   }
 
   // التحقق من الترتيب
   let order = 0;
-  if (typeof body?.order === 'number' && Number.isInteger(body.order) && body.order >= 0) {
+  if (
+    typeof body?.order === 'number' &&
+    Number.isInteger(body.order) &&
+    body.order >= 0
+  ) {
     order = Math.min(body.order, 1000);
   } else if (body?.order === undefined) {
     // إعطاء الترتيب التالي تلقائياً
-    const highest = (await HomepageSection.findOne().sort({ order: -1 }).select('order').lean()) as any;
+    const highest = (await HomepageSection.findOne()
+      .sort({ order: -1 })
+      .select('order')
+      .lean()) as any;
     order = (highest?.order ?? -1) + 1;
   } else {
     return jsonError('ترتيب القسم يجب أن يكون رقماً صحيحاً بين 0 و 1000', 400);
@@ -266,7 +340,10 @@ export async function POST(req: Request) {
     // التحقق من عدم تكرار المفتاح
     const keyExists = await HomepageSection.findOne({ key: normalizedKey });
     if (keyExists) {
-      return jsonError('معرّف القسم (Key) مستخدم مسبقاً، يرجى اختيار معرّف فريد', 409);
+      return jsonError(
+        'معرّف القسم (Key) مستخدم مسبقاً، يرجى اختيار معرّف فريد',
+        409,
+      );
     }
 
     const created = await HomepageSection.create({
@@ -277,7 +354,10 @@ export async function POST(req: Request) {
       layout,
       sourceType,
       autoRule: sourceType === 'AUTOMATIC' ? autoRule : undefined,
-      filterGenre: sourceType === 'AUTOMATIC' && autoRule === 'GENRE_FILTER' ? filterGenre : undefined,
+      filterCategoryId:
+      sourceType === 'AUTOMATIC' && autoRule === 'GENRE_FILTER'
+        ? filterCategoryId
+        : undefined,
       manualSeriesIds: sourceType === 'MANUAL' ? manualSeriesIds : [],
       isVisible,
       scheduledStart,
@@ -307,7 +387,10 @@ export async function POST(req: Request) {
       .populate('manualSeriesIds', 'title slug posterUrl')
       .lean();
 
-    return jsonOk({ success: true, section: sanitizeSectionDto(populated) }, 201);
+    return jsonOk(
+      { success: true, section: sanitizeSectionDto(populated) },
+      201,
+    );
   } catch (error) {
     console.error('Admin homepage section create error:', error);
     return jsonError('فشل إنشاء قسم الصفحة الرئيسية', 500);
@@ -322,7 +405,10 @@ export async function PATCH(req: Request) {
   }
 
   if (!canManageOperations(admin.role)) {
-    return jsonError('ليس لديك صلاحية تعديل أقسام الصفحة الرئيسية (مطلوب ADMIN أو SUPER_ADMIN)', 403);
+    return jsonError(
+      'ليس لديك صلاحية تعديل أقسام الصفحة الرئيسية (مطلوب ADMIN أو SUPER_ADMIN)',
+      403,
+    );
   }
 
   const conn = await connectDB();
@@ -350,14 +436,21 @@ export async function PATCH(req: Request) {
       return jsonError('يجب إرسال ترتيب جميع أقسام الصفحة الرئيسية', 400);
     }
 
-    const existingIds = new Set(existingSections.map((section: any) => section._id.toString()));
+    const existingIds = new Set(
+      existingSections.map((section: any) => section._id.toString()),
+    );
     const seenOrders = new Set<number>();
 
     const seenIds = new Set<string>();
     for (const item of orders) {
       const id = cleanText(item?.id);
       const order = item?.order;
-      if (!isValidMongoId(id) || !Number.isInteger(order) || order < 0 || order > 1000) {
+      if (
+        !isValidMongoId(id) ||
+        !Number.isInteger(order) ||
+        order < 0 ||
+        order > 1000
+      ) {
         return jsonError('بيانات إعادة الترتيب غير صحيحة', 400);
       }
       if (seenIds.has(id)) {
@@ -380,7 +473,7 @@ export async function PATCH(req: Request) {
             filter: { _id: item.id },
             update: { $set: { order: item.order } },
           },
-        }))
+        })),
       );
 
       await writeOperationsAudit({
@@ -432,8 +525,16 @@ export async function PATCH(req: Request) {
     // التحقق من الحقول المسموح بتحديثها
     if (body?.title !== undefined) {
       const title = cleanText(body.title);
-      if (!title || title.length < 2 || title.length > 120 || containsHtml(title)) {
-        return jsonError('عنوان القسم يجب أن يكون بين 2 و 120 حرفاً وبدون وسوم HTML', 400);
+      if (
+        !title ||
+        title.length < 2 ||
+        title.length > 120 ||
+        containsHtml(title)
+      ) {
+        return jsonError(
+          'عنوان القسم يجب أن يكون بين 2 و 120 حرفاً وبدون وسوم HTML',
+          400,
+        );
       }
       section.title = title;
     }
@@ -441,7 +542,10 @@ export async function PATCH(req: Request) {
     if (body?.subtitle !== undefined) {
       const subtitle = cleanText(body.subtitle);
       if (subtitle && (subtitle.length > 300 || containsHtml(subtitle))) {
-        return jsonError('الوصف الفرعي يجب ألا يتجاوز 300 حرف وبدون وسوم HTML', 400);
+        return jsonError(
+          'الوصف الفرعي يجب ألا يتجاوز 300 حرف وبدون وسوم HTML',
+          400,
+        );
       }
       section.subtitle = subtitle || '';
     }
@@ -464,7 +568,7 @@ export async function PATCH(req: Request) {
       // لا نحتفظ ببيانات المصدر السابق عند التحويل بين يدوي وتلقائي.
       if (sourceType === 'MANUAL') {
         section.autoRule = undefined;
-        section.filterGenre = undefined;
+        section.filterCategoryId = undefined;
       } else {
         section.manualSeriesIds = [];
       }
@@ -478,25 +582,37 @@ export async function PATCH(req: Request) {
         }
         section.autoRule = autoRule;
       }
-      if (body?.filterGenre !== undefined) {
-        section.filterGenre = cleanText(body.filterGenre);
+      if (body?.filterCategoryId !== undefined) {
+        const categoryId = cleanText(body.filterCategoryId);
+        section.filterCategoryId = categoryId || undefined;
       }
-
+      
       if (!section.autoRule || !(ALLOWED_AUTO_RULES as readonly string[]).includes(section.autoRule)) {
         return jsonError('يجب تحديد قاعدة تغذية تلقائية صالحة للقسم', 400);
       }
+      
       if (section.autoRule === 'GENRE_FILTER') {
-        if (!section.filterGenre || section.filterGenre.trim().length < 2) {
-          return jsonError('يرجى تحديد التصنيف المطلوب لتصفية الأعمال', 400);
+        const categoryId = section.filterCategoryId?.toString();
+      
+        if (!categoryId || !isValidMongoId(categoryId)) {
+          return jsonError('يرجى اختيار تصنيف صالح', 400);
+        }
+      
+        const categoryExists = await Category.exists({ _id: categoryId });
+      
+        if (!categoryExists) {
+          return jsonError('التصنيف المحدد غير موجود', 404);
         }
       } else {
-        section.filterGenre = undefined;
+        section.filterCategoryId = undefined;
       }
     }
 
     if (section.sourceType === 'MANUAL') {
       if (body?.manualSeriesIds !== undefined) {
-        const rawIds = Array.isArray(body.manualSeriesIds) ? body.manualSeriesIds : [];
+        const rawIds = Array.isArray(body.manualSeriesIds)
+          ? body.manualSeriesIds
+          : [];
         if (rawIds.length === 0) {
           return jsonError('يجب تحديد عمل واحد على الأقل للأقسام اليدوية', 400);
         }
@@ -504,29 +620,47 @@ export async function PATCH(req: Request) {
           return jsonError('لا يمكن إضافة أكثر من 30 عملاً للقسم الواحد', 400);
         }
 
-        const uniqueIds = Array.from(new Set(rawIds.map((id: any) => cleanText(id))));
+        const uniqueIds = Array.from(
+          new Set(rawIds.map((id: any) => cleanText(id))),
+        );
         for (const sId of uniqueIds) {
           if (!isValidMongoId(sId)) {
             return jsonError(`معرّف العمل ${sId} غير صالح`, 400);
           }
         }
 
-        const existingSeries = await Series.find({ _id: { $in: uniqueIds } }).select('_id').lean();
+        const existingSeries = await Series.find({ _id: { $in: uniqueIds } })
+          .select('_id')
+          .lean();
         if (existingSeries.length !== uniqueIds.length) {
-          return jsonError('بعض الأعمال المحددة غير موجودة في قاعدة البيانات', 400);
+          return jsonError(
+            'بعض الأعمال المحددة غير موجودة في قاعدة البيانات',
+            400,
+          );
         }
         section.manualSeriesIds = uniqueIds as any;
       }
 
-      if (!Array.isArray(section.manualSeriesIds) || section.manualSeriesIds.length === 0) {
+      if (
+        !Array.isArray(section.manualSeriesIds) ||
+        section.manualSeriesIds.length === 0
+      ) {
         return jsonError('يجب تحديد عمل واحد على الأقل للأقسام اليدوية', 400);
       }
     }
 
     if (body?.order !== undefined) {
       const order = body.order;
-      if (typeof order !== 'number' || !Number.isInteger(order) || order < 0 || order > 1000) {
-        return jsonError('ترتيب القسم يجب أن يكون رقماً صحيحاً بين 0 و 1000', 400);
+      if (
+        typeof order !== 'number' ||
+        !Number.isInteger(order) ||
+        order < 0 ||
+        order > 1000
+      ) {
+        return jsonError(
+          'ترتيب القسم يجب أن يكون رقماً صحيحاً بين 0 و 1000',
+          400,
+        );
       }
       section.order = order;
     }
@@ -538,7 +672,9 @@ export async function PATCH(req: Request) {
       }
       const nextVisible = body.isVisible;
       if (section.isVisible !== nextVisible) {
-        visibilityAction = nextVisible ? 'SHOW_HOMEPAGE_SECTION' : 'HIDE_HOMEPAGE_SECTION';
+        visibilityAction = nextVisible
+          ? 'SHOW_HOMEPAGE_SECTION'
+          : 'HIDE_HOMEPAGE_SECTION';
       }
       section.isVisible = nextVisible;
     }
@@ -547,10 +683,14 @@ export async function PATCH(req: Request) {
     if (body?.scheduledStart !== undefined) {
       if (body.scheduledStart !== null && body.scheduledStart !== '') {
         if (typeof body.scheduledStart !== 'string') {
-          return jsonError('تاريخ البداية يجب أن يكون نصاً بصيغة ISO أو فارغاً', 400);
+          return jsonError(
+            'تاريخ البداية يجب أن يكون نصاً بصيغة ISO أو فارغاً',
+            400,
+          );
         }
         const sDate = new Date(body.scheduledStart);
-        if (Number.isNaN(sDate.getTime())) return jsonError('تاريخ البداية غير صالح', 400);
+        if (Number.isNaN(sDate.getTime()))
+          return jsonError('تاريخ البداية غير صالح', 400);
         section.scheduledStart = sDate;
       } else {
         section.scheduledStart = undefined;
@@ -560,17 +700,25 @@ export async function PATCH(req: Request) {
     if (body?.scheduledEnd !== undefined) {
       if (body.scheduledEnd !== null && body.scheduledEnd !== '') {
         if (typeof body.scheduledEnd !== 'string') {
-          return jsonError('تاريخ النهاية يجب أن يكون نصاً بصيغة ISO أو فارغاً', 400);
+          return jsonError(
+            'تاريخ النهاية يجب أن يكون نصاً بصيغة ISO أو فارغاً',
+            400,
+          );
         }
         const eDate = new Date(body.scheduledEnd);
-        if (Number.isNaN(eDate.getTime())) return jsonError('تاريخ النهاية غير صالح', 400);
+        if (Number.isNaN(eDate.getTime()))
+          return jsonError('تاريخ النهاية غير صالح', 400);
         section.scheduledEnd = eDate;
       } else {
         section.scheduledEnd = undefined;
       }
     }
 
-    if (section.scheduledStart && section.scheduledEnd && section.scheduledStart.getTime() >= section.scheduledEnd.getTime()) {
+    if (
+      section.scheduledStart &&
+      section.scheduledEnd &&
+      section.scheduledStart.getTime() >= section.scheduledEnd.getTime()
+    ) {
       return jsonError('تاريخ بداية العرض يجب أن يسبق تاريخ النهاية', 400);
     }
 
@@ -612,7 +760,10 @@ export async function DELETE(req: Request) {
   }
 
   if (!canManageOperations(admin.role)) {
-    return jsonError('ليس لديك صلاحية حذف أقسام الصفحة الرئيسية (مطلوب ADMIN أو SUPER_ADMIN)', 403);
+    return jsonError(
+      'ليس لديك صلاحية حذف أقسام الصفحة الرئيسية (مطلوب ADMIN أو SUPER_ADMIN)',
+      403,
+    );
   }
 
   const conn = await connectDB();
@@ -621,7 +772,9 @@ export async function DELETE(req: Request) {
   }
 
   const { searchParams } = new URL(req.url);
-  let sectionId = cleanText(searchParams.get('id') || searchParams.get('sectionId'));
+  let sectionId = cleanText(
+    searchParams.get('id') || searchParams.get('sectionId'),
+  );
 
   if (!sectionId) {
     try {

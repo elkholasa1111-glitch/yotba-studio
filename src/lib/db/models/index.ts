@@ -385,7 +385,11 @@ const HomepageSectionSchema = new Schema(
       type: String, 
       enum: ['POPULAR', 'NEWEST', 'GENRE_FILTER', 'EDITORIAL_CHOICE', 'COMING_SOON', 'MOST_COMPLETED', 'CONTINUE_LISTENING'] 
     },
-    filterGenre: { type: String },
+    filterCategoryId: {
+      type: Schema.Types.ObjectId,
+      ref: 'Category',
+      index: true,
+    },
     manualSeriesIds: [{ type: Schema.Types.ObjectId, ref: 'Series' }],
     isVisible: { type: Boolean, default: true, index: true },
     scheduledStart: { type: Date },

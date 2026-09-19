@@ -117,7 +117,7 @@ export interface AdminHomepageSectionDTO {
   layout: HomepageSectionLayout;
   sourceType: HomepageSectionSource;
   autoRule: HomepageSectionAutoRule | null;
-  filterGenre: string | null;
+  filterCategoryId: string | null;
   manualSeriesIds: string[];
   manualSeries: Array<{
     _id: string;
@@ -145,6 +145,12 @@ export interface SeriesOption {
   posterUrl?: string;
   isPublished?: boolean;
   seasons?: SeasonOption[];
+}
+
+export interface CategoryOption {
+  _id: string;
+  nameAr: string;
+  slug: string;
 }
 
 export interface ApiSuccess<T> {
