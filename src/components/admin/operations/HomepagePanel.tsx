@@ -186,7 +186,16 @@ export const HomepagePanel: React.FC<HomepagePanelProps> = ({ onNotice }) => {
     setFormSourceType(sec.sourceType);
     setFormAutoRule(sec.autoRule || 'NEWEST');
     setFormCategoryId(sec.filterCategoryId || '');
-    setFormManualSeriesIds(sec.manualSeriesIds || []);
+    setFormManualSeriesIds(
+      (sec.manualSeriesIds || [])
+        .map((item: any) => {
+          const rawId =
+            item && typeof item === 'object' && item._id ? item._id : item;
+
+          return rawId?.toString?.() || '';
+        })
+        .filter((id) => /^[a-f\d]{24}$/i.test(id)),
+    );
     setFormIsVisible(sec.isVisible);
     setFormScheduledStart(toDateTimeLocal(sec.scheduledStart));
     setFormScheduledEnd(toDateTimeLocal(sec.scheduledEnd));
