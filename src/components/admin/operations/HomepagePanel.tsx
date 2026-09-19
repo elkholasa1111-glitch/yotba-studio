@@ -24,6 +24,7 @@ import {
   HomepageSectionSource,
   HomepageSectionAutoRule,
   SeriesOption,
+  CategoryOption,
 } from './types';
 import {
   fetchHomepageSections,
@@ -62,6 +63,7 @@ const AUTO_RULE_LABELS: Record<HomepageSectionAutoRule, string> = {
 export const HomepagePanel: React.FC<HomepagePanelProps> = ({ onNotice }) => {
   const [sections, setSections] = useState<AdminHomepageSectionDTO[]>([]);
   const [seriesOptions, setSeriesOptions] = useState<SeriesOption[]>([]);
+  const [categoryOptions, setCategoryOptions] = useState<CategoryOption[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -70,16 +72,19 @@ export const HomepagePanel: React.FC<HomepagePanelProps> = ({ onNotice }) => {
 
   // حالة نافذة الإنشاء / التعديل
   const [isEditorOpen, setIsEditorOpen] = useState(false);
-  const [editingSection, setEditingSection] = useState<AdminHomepageSectionDTO | null>(null);
+  const [editingSection, setEditingSection] =
+    useState<AdminHomepageSectionDTO | null>(null);
 
   // حقول نموذج القسم
   const [formKey, setFormKey] = useState('');
   const [formTitle, setFormTitle] = useState('');
   const [formSubtitle, setFormSubtitle] = useState('');
   const [formLayout, setFormLayout] = useState<HomepageSectionLayout>('RAIL');
-  const [formSourceType, setFormSourceType] = useState<HomepageSectionSource>('AUTOMATIC');
-  const [formAutoRule, setFormAutoRule] = useState<HomepageSectionAutoRule>('NEWEST');
-  const [formFilterGenre, setFormFilterGenre] = useState('');
+  const [formSourceType, setFormSourceType] =
+    useState<HomepageSectionSource>('AUTOMATIC');
+  const [formAutoRule, setFormAutoRule] =
+    useState<HomepageSectionAutoRule>('NEWEST');
+  const [formCategoryId, setFormCategoryId] = useState('');
   const [formManualSeriesIds, setFormManualSeriesIds] = useState<string[]>([]);
   const [formIsVisible, setFormIsVisible] = useState(true);
   const [formScheduledStart, setFormScheduledStart] = useState('');
@@ -93,7 +98,8 @@ export const HomepagePanel: React.FC<HomepagePanelProps> = ({ onNotice }) => {
   const [isDiscardConfirmOpen, setIsDiscardConfirmOpen] = useState(false);
 
   // نافذة تأكيد الحذف
-  const [deleteTarget, setDeleteTarget] = useState<AdminHomepageSectionDTO | null>(null);
+  const [deleteTarget, setDeleteTarget] =
+    useState<AdminHomepageSectionDTO | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const editorCloseRef = useRef<HTMLButtonElement>(null);
 
@@ -108,6 +114,7 @@ export const HomepagePanel: React.FC<HomepagePanelProps> = ({ onNotice }) => {
     if (res.ok) {
       setSections(res.data.sections);
       setSeriesOptions(res.data.seriesOptions);
+      setCategoryOptions(res.data.categoryOptions);
     } else {
       setError(res.error);
     }
@@ -159,7 +166,7 @@ export const HomepagePanel: React.FC<HomepagePanelProps> = ({ onNotice }) => {
     setFormLayout('RAIL');
     setFormSourceType('AUTOMATIC');
     setFormAutoRule('NEWEST');
-    setFormFilterGenre('');
+    setFormCategoryId('');
     setFormManualSeriesIds([]);
     setFormIsVisible(true);
     setFormScheduledStart('');
@@ -178,7 +185,7 @@ export const HomepagePanel: React.FC<HomepagePanelProps> = ({ onNotice }) => {
     setFormLayout(sec.layout);
     setFormSourceType(sec.sourceType);
     setFormAutoRule(sec.autoRule || 'NEWEST');
-    setFormFilterGenre(sec.filterGenre || '');
+    setFormCategoryId(sec.filterCategoryId || '');
     setFormManualSeriesIds(sec.manualSeriesIds || []);
     setFormIsVisible(sec.isVisible);
     setFormScheduledStart(toDateTimeLocal(sec.scheduledStart));
@@ -201,7 +208,9 @@ export const HomepagePanel: React.FC<HomepagePanelProps> = ({ onNotice }) => {
   const toggleSeriesInManual = (seriesId: string) => {
     setFormHasChanges(true);
     setFormManualSeriesIds((prev) =>
-      prev.includes(seriesId) ? prev.filter((id) => id !== seriesId) : [...prev, seriesId]
+      prev.includes(seriesId)
+        ? prev.filter((id) => id !== seriesId)
+        : [...prev, seriesId],
     );
   };
 
@@ -220,13 +229,25 @@ export const HomepagePanel: React.FC<HomepagePanelProps> = ({ onNotice }) => {
       return;
     }
 
+    if (
+      formSourceType === 'AUTOMATIC' &&
+      formAutoRule === 'GENRE_FILTER' &&
+      !formCategoryId
+    ) {
+      setFormError('يرجى اختيار تصنيف للقسم');
+      return;
+    }
+
     if (formSourceType === 'MANUAL' && formManualSeriesIds.length === 0) {
       setFormError('يجب اختيار عمل واحد على الأقل للقسم اليدوي');
       return;
     }
 
     if (formScheduledStart && formScheduledEnd) {
-      if (new Date(formScheduledStart).getTime() >= new Date(formScheduledEnd).getTime()) {
+      if (
+        new Date(formScheduledStart).getTime() >=
+        new Date(formScheduledEnd).getTime()
+      ) {
         setFormError('تاريخ ووقت بداية العرض يجب أن يسبق تاريخ النهاية');
         return;
       }
@@ -240,14 +261,18 @@ export const HomepagePanel: React.FC<HomepagePanelProps> = ({ onNotice }) => {
       layout: formLayout,
       sourceType: formSourceType,
       autoRule: formSourceType === 'AUTOMATIC' ? formAutoRule : undefined,
-      filterGenre:
+      filterCategoryId:
         formSourceType === 'AUTOMATIC' && formAutoRule === 'GENRE_FILTER'
-          ? formFilterGenre.trim() || undefined
+          ? formCategoryId || undefined
           : undefined,
       manualSeriesIds: formSourceType === 'MANUAL' ? formManualSeriesIds : [],
       isVisible: formIsVisible,
-      scheduledStart: formScheduledStart ? new Date(formScheduledStart).toISOString() : null,
-      scheduledEnd: formScheduledEnd ? new Date(formScheduledEnd).toISOString() : null,
+      scheduledStart: formScheduledStart
+        ? new Date(formScheduledStart).toISOString()
+        : null,
+      scheduledEnd: formScheduledEnd
+        ? new Date(formScheduledEnd).toISOString()
+        : null,
     };
 
     let res;
@@ -265,7 +290,7 @@ export const HomepagePanel: React.FC<HomepagePanelProps> = ({ onNotice }) => {
         'success',
         editingSection
           ? `تم تحديث قسم "${res.data.section.title}" وتحديث كاش الصفحة الرئيسية`
-          : `تم إنشاء قسم "${res.data.section.title}" بنجاح`
+          : `تم إنشاء قسم "${res.data.section.title}" بنجاح`,
       );
       setIsEditorOpen(false);
       loadSections();
@@ -279,9 +304,12 @@ export const HomepagePanel: React.FC<HomepagePanelProps> = ({ onNotice }) => {
     const nextVal = !sec.isVisible;
     const res = await updateHomepageSection(sec._id, { isVisible: nextVal });
     if (res.ok) {
-      onNotice?.('success', nextVal ? `تم إظهار قسم "${sec.title}"` : `تم إخفاء قسم "${sec.title}"`);
+      onNotice?.(
+        'success',
+        nextVal ? `تم إظهار قسم "${sec.title}"` : `تم إخفاء قسم "${sec.title}"`,
+      );
       setSections((prev) =>
-        prev.map((s) => (s._id === sec._id ? { ...s, isVisible: nextVal } : s))
+        prev.map((s) => (s._id === sec._id ? { ...s, isVisible: nextVal } : s)),
       );
     } else {
       onNotice?.('error', res.error);
@@ -355,7 +383,9 @@ export const HomepagePanel: React.FC<HomepagePanelProps> = ({ onNotice }) => {
             className="min-h-11 min-w-11 flex items-center justify-center rounded-lg border border-border-subtle bg-surface-elevated text-editorial-secondary hover:text-editorial-ivory hover:border-crimson focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson disabled:opacity-50"
             aria-label="تحديث الأقسام"
           >
-            <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+            <RefreshCw
+              className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`}
+            />
           </button>
           <button
             type="button"
@@ -390,9 +420,12 @@ export const HomepagePanel: React.FC<HomepagePanelProps> = ({ onNotice }) => {
         </div>
       ) : sections.length === 0 ? (
         <div className="flex min-h-[240px] flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border-subtle bg-surface p-8 text-center text-editorial-secondary">
-          <p className="text-base font-bold text-editorial-ivory">لا توجد أقسام مسجلة حالياً</p>
+          <p className="text-base font-bold text-editorial-ivory">
+            لا توجد أقسام مسجلة حالياً
+          </p>
           <p className="text-xs">
-            تعتمد الصفحة الرئيسية حالياً على الأقسام الافتراضية. أضف قسماً لتخصيص الواجهة.
+            تعتمد الصفحة الرئيسية حالياً على الأقسام الافتراضية. أضف قسماً
+            لتخصيص الواجهة.
           </p>
           <button
             type="button"
@@ -408,8 +441,12 @@ export const HomepagePanel: React.FC<HomepagePanelProps> = ({ onNotice }) => {
           {sections.map((sec, index) => {
             const hasSchedule = Boolean(sec.scheduledStart || sec.scheduledEnd);
             const now = Date.now();
-            const startMs = sec.scheduledStart ? new Date(sec.scheduledStart).getTime() : null;
-            const endMs = sec.scheduledEnd ? new Date(sec.scheduledEnd).getTime() : null;
+            const startMs = sec.scheduledStart
+              ? new Date(sec.scheduledStart).getTime()
+              : null;
+            const endMs = sec.scheduledEnd
+              ? new Date(sec.scheduledEnd).getTime()
+              : null;
             const isLiveBySchedule =
               (!startMs || now >= startMs) && (!endMs || now <= endMs);
 
@@ -452,7 +489,9 @@ export const HomepagePanel: React.FC<HomepagePanelProps> = ({ onNotice }) => {
 
                     <div className="space-y-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-bold text-sm text-editorial-ivory">{sec.title}</span>
+                        <span className="font-bold text-sm text-editorial-ivory">
+                          {sec.title}
+                        </span>
                         <span className="hidden sm:inline font-mono text-[11px] text-editorial-secondary bg-surface-elevated px-2 py-0.5 rounded">
                           {sec.key}
                         </span>
@@ -461,7 +500,10 @@ export const HomepagePanel: React.FC<HomepagePanelProps> = ({ onNotice }) => {
                         </span>
                         {sec.sourceType === 'AUTOMATIC' ? (
                           <span className="text-[11px] px-2 py-0.5 rounded-full bg-blue-950/30 text-blue-300 border border-blue-900/40">
-                            تلقائي: {AUTO_RULE_LABELS[sec.autoRule as HomepageSectionAutoRule] || sec.autoRule}
+                            تلقائي:{' '}
+                            {AUTO_RULE_LABELS[
+                              sec.autoRule as HomepageSectionAutoRule
+                            ] || sec.autoRule}
                           </span>
                         ) : (
                           <span className="text-[11px] px-2 py-0.5 rounded-full bg-purple-950/30 text-purple-300 border border-purple-900/40">
@@ -480,11 +522,23 @@ export const HomepagePanel: React.FC<HomepagePanelProps> = ({ onNotice }) => {
                         <div className="flex items-center gap-1.5 text-[11px] text-editorial-secondary pt-1">
                           <Calendar className="h-3.5 w-3.5 text-crimson" />
                           <span>
-                            الجدولة: {sec.scheduledStart ? new Date(sec.scheduledStart).toLocaleDateString('ar-EG') : 'الآن'}{' '}
-                            إلى {sec.scheduledEnd ? new Date(sec.scheduledEnd).toLocaleDateString('ar-EG') : 'بلا نهاية'}
+                            الجدولة:{' '}
+                            {sec.scheduledStart
+                              ? new Date(sec.scheduledStart).toLocaleDateString(
+                                  'ar-EG',
+                                )
+                              : 'الآن'}{' '}
+                            إلى{' '}
+                            {sec.scheduledEnd
+                              ? new Date(sec.scheduledEnd).toLocaleDateString(
+                                  'ar-EG',
+                                )
+                              : 'بلا نهاية'}
                           </span>
                           {!isLiveBySchedule && (
-                            <span className="text-amber-400 font-semibold mr-1">(خارج نافذة البث)</span>
+                            <span className="text-amber-400 font-semibold mr-1">
+                              (خارج نافذة البث)
+                            </span>
                           )}
                         </div>
                       )}
@@ -502,7 +556,11 @@ export const HomepagePanel: React.FC<HomepagePanelProps> = ({ onNotice }) => {
                           : 'border-border-subtle bg-surface-elevated text-editorial-secondary hover:text-editorial-ivory'
                       }`}
                     >
-                      {sec.isVisible ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+                      {sec.isVisible ? (
+                        <Eye className="h-3.5 w-3.5" />
+                      ) : (
+                        <EyeOff className="h-3.5 w-3.5" />
+                      )}
                       <span>{sec.isVisible ? 'ظاهر' : 'مخفي'}</span>
                     </button>
 
@@ -547,8 +605,13 @@ export const HomepagePanel: React.FC<HomepagePanelProps> = ({ onNotice }) => {
             dir="rtl"
           >
             <div className="flex items-center justify-between border-b border-border-subtle pb-4">
-              <h2 id="section-editor-title" className="text-base font-bold text-editorial-ivory">
-                {editingSection ? `تعديل قسم: ${editingSection.title}` : 'إضافة قسم جديد للصفحة الرئيسية'}
+              <h2
+                id="section-editor-title"
+                className="text-base font-bold text-editorial-ivory"
+              >
+                {editingSection
+                  ? `تعديل قسم: ${editingSection.title}`
+                  : 'إضافة قسم جديد للصفحة الرئيسية'}
               </h2>
               <button
                 type="button"
@@ -569,10 +632,16 @@ export const HomepagePanel: React.FC<HomepagePanelProps> = ({ onNotice }) => {
               </div>
             )}
 
-            <form onSubmit={handleSubmitForm} className="mt-4 space-y-4 text-xs">
+            <form
+              onSubmit={handleSubmitForm}
+              className="mt-4 space-y-4 text-xs"
+            >
               {/* المعرّف (Key) */}
               <div>
-                <label htmlFor="sec-key-input" className="block font-semibold text-editorial-ivory mb-1">
+                <label
+                  htmlFor="sec-key-input"
+                  className="block font-semibold text-editorial-ivory mb-1"
+                >
                   المعرّف الداخلي (بالإنجليزية):
                 </label>
                 <input
@@ -593,7 +662,10 @@ export const HomepagePanel: React.FC<HomepagePanelProps> = ({ onNotice }) => {
               {/* العنوان والوصف الفرعي */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label htmlFor="sec-title-input" className="block font-semibold text-editorial-ivory mb-1">
+                  <label
+                    htmlFor="sec-title-input"
+                    className="block font-semibold text-editorial-ivory mb-1"
+                  >
                     عنوان القسم (بالعربية):
                   </label>
                   <input
@@ -611,7 +683,10 @@ export const HomepagePanel: React.FC<HomepagePanelProps> = ({ onNotice }) => {
                 </div>
 
                 <div>
-                  <label htmlFor="sec-subtitle-input" className="block font-semibold text-editorial-ivory mb-1">
+                  <label
+                    htmlFor="sec-subtitle-input"
+                    className="block font-semibold text-editorial-ivory mb-1"
+                  >
                     الوصف الفرعي (اختياري):
                   </label>
                   <input
@@ -630,7 +705,10 @@ export const HomepagePanel: React.FC<HomepagePanelProps> = ({ onNotice }) => {
 
               {/* التخطيط (Layout) */}
               <div>
-                <label htmlFor="sec-layout-select" className="block font-semibold text-editorial-ivory mb-1">
+                <label
+                  htmlFor="sec-layout-select"
+                  className="block font-semibold text-editorial-ivory mb-1"
+                >
                   شكل القسم:
                 </label>
                 <select
@@ -691,42 +769,59 @@ export const HomepagePanel: React.FC<HomepagePanelProps> = ({ onNotice }) => {
               {formSourceType === 'AUTOMATIC' && (
                 <div className="p-3 rounded-lg border border-border-subtle bg-surface space-y-3">
                   <div>
-                    <label htmlFor="sec-autorule-select" className="block font-semibold text-editorial-ivory mb-1">
+                    <label
+                      htmlFor="sec-autorule-select"
+                      className="block font-semibold text-editorial-ivory mb-1"
+                    >
                       قاعدة الاختيار:
                     </label>
                     <select
                       id="sec-autorule-select"
                       value={formAutoRule}
                       onChange={(e) => {
-                        setFormAutoRule(e.target.value as HomepageSectionAutoRule);
+                        setFormAutoRule(
+                          e.target.value as HomepageSectionAutoRule,
+                        );
                         setFormHasChanges(true);
                       }}
                       className="min-h-11 w-full rounded-lg border border-border-subtle bg-obsidian-850 px-3 text-xs text-editorial-ivory focus:border-crimson focus:outline-none"
                     >
-                      {Object.entries(AUTO_RULE_LABELS).map(([ruleKey, label]) => (
-                        <option key={ruleKey} value={ruleKey}>
-                          {label}
-                        </option>
-                      ))}
+                      {Object.entries(AUTO_RULE_LABELS).map(
+                        ([ruleKey, label]) => (
+                          <option key={ruleKey} value={ruleKey}>
+                            {label}
+                          </option>
+                        ),
+                      )}
                     </select>
                   </div>
 
                   {formAutoRule === 'GENRE_FILTER' && (
                     <div>
-                      <label htmlFor="sec-filtergenre-input" className="block font-semibold text-editorial-ivory mb-1">
+                      <label
+                        htmlFor="sec-category-select"
+                        className="block font-semibold text-editorial-ivory mb-1"
+                      >
                         التصنيف:
                       </label>
-                      <input
-                        id="sec-filtergenre-input"
-                        type="text"
-                        value={formFilterGenre}
+
+                      <select
+                        id="sec-category-select"
+                        value={formCategoryId}
                         onChange={(e) => {
-                          setFormFilterGenre(e.target.value);
+                          setFormCategoryId(e.target.value);
                           setFormHasChanges(true);
                         }}
-                        placeholder="مثال: غموض، رعب، دراما، خيال علمي..."
                         className="min-h-11 w-full rounded-lg border border-border-subtle bg-obsidian-850 px-3 text-xs text-editorial-ivory focus:border-crimson focus:outline-none"
-                      />
+                      >
+                        <option value="">اختر تصنيفًا</option>
+
+                        {categoryOptions.map((category) => (
+                          <option key={category._id} value={category._id}>
+                            {category.nameAr}
+                          </option>
+                        ))}
+                      </select>
                     </div>
                   )}
                 </div>
@@ -737,7 +832,8 @@ export const HomepagePanel: React.FC<HomepagePanelProps> = ({ onNotice }) => {
                 <div className="p-3 rounded-lg border border-border-subtle bg-surface space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="font-semibold text-editorial-ivory">
-                      اختر الأعمال المعروضة ({formManualSeriesIds.length} تم اختيارها):
+                      اختر الأعمال المعروضة ({formManualSeriesIds.length} تم
+                      اختيارها):
                     </span>
                   </div>
                   <div className="max-h-44 overflow-y-auto space-y-1.5 divide-y divide-border-subtle/50">
@@ -755,9 +851,13 @@ export const HomepagePanel: React.FC<HomepagePanelProps> = ({ onNotice }) => {
                               onChange={() => toggleSeriesInManual(s._id)}
                               className="accent-crimson h-4 w-4"
                             />
-                            <span className="text-editorial-ivory font-medium">{s.title}</span>
+                            <span className="text-editorial-ivory font-medium">
+                              {s.title}
+                            </span>
                           </div>
-                          <span className="text-[11px] text-editorial-secondary font-mono">{s.slug}</span>
+                          <span className="text-[11px] text-editorial-secondary font-mono">
+                            {s.slug}
+                          </span>
                         </label>
                       );
                     })}
@@ -768,7 +868,10 @@ export const HomepagePanel: React.FC<HomepagePanelProps> = ({ onNotice }) => {
               {/* الجدولة الزمنية */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label htmlFor="sec-sched-start" className="block font-semibold text-editorial-ivory mb-1">
+                  <label
+                    htmlFor="sec-sched-start"
+                    className="block font-semibold text-editorial-ivory mb-1"
+                  >
                     يبدأ العرض (اختياري):
                   </label>
                   <input
@@ -784,7 +887,10 @@ export const HomepagePanel: React.FC<HomepagePanelProps> = ({ onNotice }) => {
                 </div>
 
                 <div>
-                  <label htmlFor="sec-sched-end" className="block font-semibold text-editorial-ivory mb-1">
+                  <label
+                    htmlFor="sec-sched-end"
+                    className="block font-semibold text-editorial-ivory mb-1"
+                  >
                     ينتهي العرض (اختياري):
                   </label>
                   <input
@@ -812,7 +918,10 @@ export const HomepagePanel: React.FC<HomepagePanelProps> = ({ onNotice }) => {
                   }}
                   className="accent-crimson h-4 w-4"
                 />
-                <label htmlFor="sec-visible-checkbox" className="font-semibold text-editorial-ivory cursor-pointer">
+                <label
+                  htmlFor="sec-visible-checkbox"
+                  className="font-semibold text-editorial-ivory cursor-pointer"
+                >
                   إظهار القسم للجمهور
                 </label>
               </div>
@@ -833,7 +942,9 @@ export const HomepagePanel: React.FC<HomepagePanelProps> = ({ onNotice }) => {
                   className="min-h-11 px-5 py-2 rounded-lg bg-crimson hover:bg-crimson-bright text-white font-bold shadow-halo flex items-center justify-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-crimson disabled:opacity-50"
                 >
                   {isSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
-                  <span>{editingSection ? 'حفظ التعديلات' : 'إنشاء القسم'}</span>
+                  <span>
+                    {editingSection ? 'حفظ التعديلات' : 'إنشاء القسم'}
+                  </span>
                 </button>
               </div>
             </form>

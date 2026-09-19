@@ -11,6 +11,7 @@ import {
   AdminHomepageSectionDTO,
   SeriesOption,
   AdminEntitlementDTO,
+  CategoryOption,
 } from './types';
 
 async function adminFetch<T>(url: string, init?: RequestInit): Promise<ApiResponse<T>> {
@@ -127,6 +128,7 @@ export async function fetchHomepageSections(
   ApiResponse<{
     sections: AdminHomepageSectionDTO[];
     seriesOptions: SeriesOption[];
+    categoryOptions: CategoryOption[];
   }>
 > {
   return adminFetch('/api/v1/admin/homepage', { signal });
