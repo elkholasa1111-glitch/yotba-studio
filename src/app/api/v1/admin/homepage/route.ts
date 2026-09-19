@@ -60,9 +60,14 @@ function sanitizeSectionDto(doc: any) {
     sourceType: doc.sourceType,
     autoRule: doc.autoRule || null,
     filterCategoryId: doc.filterCategoryId?.toString() || null,
-    manualSeriesIds: (doc.manualSeriesIds || []).map(
-      (id: any) => id?.toString?.() || String(id),
-    ),
+    manualSeriesIds: (doc.manualSeriesIds || [])
+      .map((item: any) => {
+        const rawId =
+          item && typeof item === 'object' && item._id ? item._id : item;
+
+        return rawId?.toString?.() || String(rawId || '');
+      })
+      .filter(Boolean),
     manualSeries: Array.isArray(doc.manualSeriesIds)
       ? doc.manualSeriesIds
           .filter(
@@ -355,9 +360,9 @@ export async function POST(req: Request) {
       sourceType,
       autoRule: sourceType === 'AUTOMATIC' ? autoRule : undefined,
       filterCategoryId:
-      sourceType === 'AUTOMATIC' && autoRule === 'GENRE_FILTER'
-        ? filterCategoryId
-        : undefined,
+        sourceType === 'AUTOMATIC' && autoRule === 'GENRE_FILTER'
+          ? filterCategoryId
+          : undefined,
       manualSeriesIds: sourceType === 'MANUAL' ? manualSeriesIds : [],
       isVisible,
       scheduledStart,
@@ -586,20 +591,23 @@ export async function PATCH(req: Request) {
         const categoryId = cleanText(body.filterCategoryId);
         section.filterCategoryId = categoryId || undefined;
       }
-      
-      if (!section.autoRule || !(ALLOWED_AUTO_RULES as readonly string[]).includes(section.autoRule)) {
+
+      if (
+        !section.autoRule ||
+        !(ALLOWED_AUTO_RULES as readonly string[]).includes(section.autoRule)
+      ) {
         return jsonError('يجب تحديد قاعدة تغذية تلقائية صالحة للقسم', 400);
       }
-      
+
       if (section.autoRule === 'GENRE_FILTER') {
         const categoryId = section.filterCategoryId?.toString();
-      
+
         if (!categoryId || !isValidMongoId(categoryId)) {
           return jsonError('يرجى اختيار تصنيف صالح', 400);
         }
-      
+
         const categoryExists = await Category.exists({ _id: categoryId });
-      
+
         if (!categoryExists) {
           return jsonError('التصنيف المحدد غير موجود', 404);
         }
