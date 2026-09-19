@@ -219,7 +219,7 @@ export async function findReferencedMediaKeys(
       throw new Error('Database connection unavailable for reference check');
     }
     const [s, e, sa] = await Promise.all([
-      Series.find().select('posterUrl heroArtworkUrl shareVideoUrl').lean(),
+      Series.find().select('posterUrl heroArtworkUrl shareVideoUrl trailerUrl').lean(),
       Episode.find().select('audioStorageKey audioPublicUrl artworkOverride').lean(),
       ShareAsset.find().select('storageKey publicUrl').lean(),
     ]);
@@ -230,7 +230,7 @@ export async function findReferencedMediaKeys(
 
   const referenced = new Set<string>();
   for (const record of remainingSeries) {
-    mergeMediaKeys(referenced, collectMediaKeysFromRecord(record, ['posterUrl', 'heroArtworkUrl', 'shareVideoUrl']));
+    mergeMediaKeys(referenced, collectMediaKeysFromRecord(record, ['posterUrl', 'heroArtworkUrl', 'shareVideoUrl', 'trailerUrl']));
   }
   for (const record of remainingEpisodes) {
     mergeMediaKeys(referenced, collectMediaKeysFromRecord(record, ['audioStorageKey', 'audioPublicUrl', 'artworkOverride']));
@@ -306,6 +306,7 @@ export async function cleanupContentMedia(
 }
 
 export interface SeriesMediaUpdates {
+  trailerUrl?: string | null;
   posterUrl?: string | null;
   heroArtworkUrl?: string | null;
   shareVideoUrl?: string | null;
@@ -321,6 +322,7 @@ export function buildSeriesMediaUpdates(
   updates: Record<string, unknown>
 ): SeriesMediaUpdates {
   const mediaUpdates: SeriesMediaUpdates = {};
+  if (Object.prototype.hasOwnProperty.call(updates, 'trailerUrl')) mediaUpdates.trailerUrl = updates.trailerUrl as string | null | undefined;
   if (Object.prototype.hasOwnProperty.call(updates, 'posterUrl')) {
     mediaUpdates.posterUrl = updates.posterUrl as string | null | undefined;
   }
@@ -363,6 +365,7 @@ export function collectReplacedSeriesMediaKeys(
         posterUrl?: string | null;
         heroArtworkUrl?: string | null;
         shareVideoUrl?: string | null;
+        trailerUrl?: string | null;
       }
     | null
     | undefined,
@@ -370,6 +373,10 @@ export function collectReplacedSeriesMediaKeys(
 ): Set<string> {
   const replaced = new Set<string>();
   if (!currentSeries || !updates) return replaced;
+  if (isPropertySupplied(updates, 'trailerUrl')) {
+    const oldKey = extractStorageKey(currentSeries.trailerUrl);
+    if (oldKey && oldKey !== extractStorageKey((updates as SeriesMediaUpdates).trailerUrl)) replaced.add(oldKey);
+  }
 
   if (isPropertySupplied(updates, 'posterUrl')) {
     const val = (updates as any).posterUrl;

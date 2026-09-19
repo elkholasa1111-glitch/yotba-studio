@@ -28,6 +28,7 @@ interface SeriesFormState {
   posterUrl: string;
   heroArtworkUrl: string;
   shareVideoUrl: string;
+  trailerUrl: string;
   genresText: string;
   categoryIds: string[];
   contentWarningsText: string;
@@ -48,6 +49,7 @@ function initialState(series: AdminSeriesDTO | null): SeriesFormState {
     posterUrl: series?.posterUrl ?? '',
     heroArtworkUrl: series?.heroArtworkUrl ?? '',
     shareVideoUrl: series?.shareVideoUrl ?? '',
+    trailerUrl: series?.trailerUrl ?? '',
     genresText: series?.genres.join('، ') ?? '',
     categoryIds: series?.categoryIds ?? [],
     contentWarningsText: series?.contentWarnings.join('، ') ?? '',
@@ -161,6 +163,8 @@ export const SeriesEditor: React.FC<SeriesEditorProps> = ({
       nextErrors.heroArtworkUrl = 'يرجى رفع صورة الواجهة أو إدخال رابط صالح';
     if (form.shareVideoUrl.trim() && !isValidMedia(form.shareVideoUrl))
       nextErrors.shareVideoUrl = 'رابط الفيديو غير صالح';
+    if (form.trailerUrl.trim() && !isValidMedia(form.trailerUrl))
+      nextErrors.trailerUrl = 'رابط اللمحة الصوتية غير صالح';
     const year = Number(form.productionYear);
     if (!Number.isInteger(year) || year < 1900 || year > 2100)
       nextErrors.productionYear = 'سنة بين 1900 و 2100';
@@ -186,6 +190,7 @@ export const SeriesEditor: React.FC<SeriesEditorProps> = ({
         posterUrl: form.posterUrl.trim(),
         heroArtworkUrl: form.heroArtworkUrl.trim(),
         shareVideoUrl: form.shareVideoUrl.trim() || null,
+        trailerUrl: form.trailerUrl.trim() || null,
         genres: splitList(form.genresText),
         categoryIds: form.categoryIds,
         contentWarnings: splitList(form.contentWarningsText),
@@ -379,6 +384,14 @@ export const SeriesEditor: React.FC<SeriesEditorProps> = ({
               onChange={(url) => setField('shareVideoUrl', url)}
               error={errors.shareVideoUrl}
               helperText="فيديو ترويجي قصير (اختياري)."
+            />
+            <MediaUploadDropzone
+              label="لمحة صوتية (اختياري، حتى 30 ثانية في العرض)"
+              category="trailer"
+              value={form.trailerUrl}
+              onChange={(url) => setField('trailerUrl', url)}
+              error={errors.trailerUrl}
+              helperText="مقطع صوتي مستقل وعام وآمن من الحرق للتعريف بالعمل؛ سيعرض حتى 30 ثانية دون حد لحجم الملف."
             />
           </div>
         </details>

@@ -49,6 +49,7 @@ export interface AdminSeriesDTO {
   contentWarnings: string[];
   productionYear: number;
   shareVideoUrl: string | null;
+  trailerUrl: string | null;
   isCompleted: boolean;
   featured: boolean;
   publishedAt: string | null;

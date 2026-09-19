@@ -92,6 +92,7 @@ export const SUPPORTED_CATEGORIES = [
   'hero',
   'image',
   'audio',
+  'trailer',
   'video',
   'transcript',
 ] as const;
@@ -228,6 +229,11 @@ export const CATEGORY_CONFIGS: Record<SupportedMediaCategory, CategoryValidation
     allowedMimes: ALLOWED_AUDIO_MIMES,
     extensionToMime: AUDIO_EXTENSION_TO_MIME,
     arabicLabel: 'ملف صوتي',
+  },
+  trailer: {
+    category: 'trailer', folder: 'media', maxBytes: UNLIMITED_MEDIA_BYTES,
+    isProtected: false, allowedMimes: ALLOWED_AUDIO_MIMES,
+    extensionToMime: AUDIO_EXTENSION_TO_MIME, arabicLabel: 'لمحة صوتية عامة',
   },
   video: {
     category: 'video',

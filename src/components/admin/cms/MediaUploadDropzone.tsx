@@ -24,7 +24,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 
-export type MediaCategory = 'poster' | 'hero' | 'image' | 'audio' | 'video' | 'transcript';
+export type MediaCategory = 'poster' | 'hero' | 'image' | 'audio' | 'trailer' | 'video' | 'transcript';
 
 interface MediaUploadDropzoneProps {
   label: string;
@@ -174,6 +174,7 @@ export const MediaUploadDropzone: React.FC<MediaUploadDropzoneProps> = ({
       case 'image':
         return 'image/jpeg,image/png,image/webp,image/avif';
       case 'audio':
+      case 'trailer':
         return 'audio/mpeg,audio/mp3,audio/x-mp3,audio/mp4,audio/m4a,audio/x-m4a,audio/aac,audio/x-aac,audio/ogg,audio/vorbis,audio/x-ogg,audio/webm,audio/x-webm,audio/wav,audio/wave,audio/x-wav,audio/flac,audio/x-flac,.mp3,.m4a,.aac,.ogg,.weba,.webm,.wav,.flac';
       case 'video':
         return 'video/mp4,video/webm,video/quicktime';
@@ -191,6 +192,7 @@ export const MediaUploadDropzone: React.FC<MediaUploadDropzoneProps> = ({
       case 'image':
         return <ImageIcon size={24} className="text-crimson" />;
       case 'audio':
+      case 'trailer':
         return <Music size={24} className="text-crimson" />;
       case 'video':
         return <Film size={24} className="text-crimson" />;
@@ -240,7 +242,7 @@ export const MediaUploadDropzone: React.FC<MediaUploadDropzoneProps> = ({
       wav: 'audio/wav',
       flac: 'audio/flac',
       weba: 'audio/webm',
-      webm: category === 'audio' ? 'audio/webm' : 'video/webm',
+      webm: category === 'audio' || category === 'trailer' ? 'audio/webm' : 'video/webm',
       mp4: 'video/mp4',
       mov: 'video/quicktime',
       srt: 'text/plain',
@@ -259,7 +261,7 @@ export const MediaUploadDropzone: React.FC<MediaUploadDropzoneProps> = ({
     const previewBlob = URL.createObjectURL(file);
     setLocalPreviewUrl(previewBlob);
 
-    if (category === 'audio') {
+    if (category === 'audio' || category === 'trailer') {
       try {
         const tempAudio = new Audio(previewBlob);
         tempAudio.onloadedmetadata = () => {
@@ -396,7 +398,7 @@ export const MediaUploadDropzone: React.FC<MediaUploadDropzoneProps> = ({
           throw new Error(finalizeData.error || 'فشل اعتماد وتوثيق الملف في قاعدة البيانات');
         }
 
-        // حماية الصوت: الملفات الصوتية لا تمنح رابطاً عاماً بل نعتمد storageKey
+        // صوت الحلقات محمي؛ أما لمحة المسلسل فوسيط عام وآمن للعرض.
         const finalUrl = category === 'audio' ? '' : (finalizeData.publicUrl || authData.publicUrl || '');
         onChange(finalUrl);
         if (onStorageKeyChange) {
@@ -511,7 +513,7 @@ export const MediaUploadDropzone: React.FC<MediaUploadDropzoneProps> = ({
   };
 
   const isImageCategory = ['poster', 'hero', 'image'].includes(category);
-  const isAudioCategory = category === 'audio';
+  const isAudioCategory = category === 'audio' || category === 'trailer';
   const isVideoCategory = category === 'video';
   const previewSource = localPreviewUrl || value;
   const hasMedia = Boolean(value || storageKey || localPreviewUrl);
@@ -691,6 +693,7 @@ export const MediaUploadDropzone: React.FC<MediaUploadDropzoneProps> = ({
                 </p>
                 <p className="text-[11px] text-editorial-muted mt-1">
                   {category === 'audio' && 'صيغ الصوت المدعومة: MP3, WAV, M4A, FLAC — رفع مباشر إلى R2'}
+                  {category === 'trailer' && 'لمحة صوتية عامة وآمنة من الحرق: MP3, WAV, M4A, FLAC — رفع مباشر إلى R2'}
                   {category === 'poster' && 'صيغ البوستر المدعومة: JPG, PNG, WEBP, AVIF — رفع مباشر إلى R2'}
                   {category === 'hero' && 'غلاف هيرو عريض سينمائي: 16:9 أو 21:9 بدقة عالية — رفع مباشر إلى R2'}
                   {category === 'video' && 'مقاطع فيديو ترويجية قصيرة: MP4, WEBM — رفع مباشر إلى R2'}

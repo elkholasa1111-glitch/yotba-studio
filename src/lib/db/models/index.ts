@@ -114,6 +114,7 @@ const SeriesSchema = new Schema(
     isCompleted: { type: Boolean, default: false },
     productionYear: { type: Number, default: 2026 },
     shareVideoUrl: { type: String },
+    trailerUrl: { type: String },
     publishedAt: { type: Date, default: Date.now, index: true },
   },
   { timestamps: true }

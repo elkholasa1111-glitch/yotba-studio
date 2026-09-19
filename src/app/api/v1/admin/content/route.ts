@@ -6,6 +6,7 @@
 // ============================================================
 
 import { NextResponse } from 'next/server';
+import { after } from 'next/server';
 import { isValidObjectId, Types } from 'mongoose';
 import { getCurrentAdmin } from '@/lib/auth';
 import { connectDB } from '@/lib/db/connect';
@@ -75,6 +76,21 @@ const MAX_DURATION_MS = 86_400_000;
 const MAX_SEGMENTS = 2000;
 const MAX_SEGMENT_TEXT = 1000;
 const MAX_JSON_BODY_BYTES = 3 * 1024 * 1024; // سماحية جسم الطلب JSON (نصوص متزامنة ضخمة محتملة)
+
+export const maxDuration = 60;
+
+function notifyContentChanged() {
+  after(async () => {
+    const secret = process.env.HOMEPAGE_REVALIDATE_SECRET?.trim();
+    if (!secret) return;
+    try {
+      await Promise.all([
+        fetch(`${getPublicPlatformOrigin()}/api/v1/revalidate/homepage`, { method: 'POST', headers: { 'x-yotba-revalidate-secret': secret }, signal: AbortSignal.timeout(10000) }),
+        fetch(`${getPublicPlatformOrigin()}/api/v1/notifications/dispatch`, { method: 'POST', headers: { 'x-yotba-revalidate-secret': secret }, signal: AbortSignal.timeout(50000) }),
+      ]);
+    } catch { console.error('Public content refresh deferred to scheduled retry'); }
+  });
+}
 
 // ============================================================
 // أدوات داخلية
@@ -250,6 +266,7 @@ function seriesSummary(s: any) {
     featured: s.featured,
     publishedAt: s.publishedAt,
     freeEpisodesCount: s.freeEpisodesCount,
+    trailerUrl: s.trailerUrl ?? null,
     categoryIds: Array.isArray(s.categoryIds)
       ? s.categoryIds.map((id: any) => id.toString())
       : [],
@@ -345,6 +362,7 @@ export async function GET(req: Request) {
         : [],
       productionYear: s.productionYear,
       shareVideoUrl: s.shareVideoUrl ?? null,
+      trailerUrl: s.trailerUrl ?? null,
       isCompleted: Boolean(s.isCompleted),
       featured: Boolean(s.featured),
       publishedAt: s.publishedAt ? new Date(s.publishedAt).toISOString() : null,
@@ -515,6 +533,9 @@ export async function POST(req: Request) {
       const isPublished =
         body.published === undefined ? true : body.published === true;
 
+      if (body.trailerUrl != null && body.trailerUrl !== '' && (typeof body.trailerUrl !== 'string' || !isSafeMediaUrl(body.trailerUrl.trim()) || /\/(?:audio|episodes)\//.test(body.trailerUrl)))
+        return jsonError('ارفع لمحة صوتية عامة مستقلة عن ملف الحلقة المحمي');
+
       const existing = await Series.exists({ slug });
       if (existing)
         return jsonError('المعرّف (slug) مستخدم مسبقاً لمسلسل آخر', 409);
@@ -540,6 +561,7 @@ export async function POST(req: Request) {
         freeEpisodesCount,
         featured,
         isCompleted: body.isCompleted === true,
+        trailerUrl: typeof body.trailerUrl === 'string' && body.trailerUrl.trim() ? body.trailerUrl.trim() : undefined,
         shareVideoUrl:
           typeof body.shareVideoUrl === 'string' && body.shareVideoUrl.trim()
             ? body.shareVideoUrl.trim()
@@ -554,6 +576,7 @@ export async function POST(req: Request) {
         entityId: series._id.toString(),
         newState: seriesSummary(series),
       });
+      notifyContentChanged();
 
       return jsonOk(
         { success: true, id: series._id.toString(), slug: series.slug },
@@ -637,6 +660,7 @@ export async function POST(req: Request) {
           releaseStatus,
         },
       });
+      notifyContentChanged();
 
       return jsonOk({ success: true, id: season._id.toString() }, 201);
     }
@@ -788,6 +812,7 @@ export async function POST(req: Request) {
           durationMs: episode.durationMs,
         },
       });
+      notifyContentChanged();
 
       return jsonOk(
         { success: true, id: episode._id.toString(), isFree: episode.isFree },
@@ -938,6 +963,12 @@ export async function PATCH(req: Request) {
         }
       }
 
+      if (body.trailerUrl !== undefined) {
+        if (body.trailerUrl === null || body.trailerUrl === '') updates.trailerUrl = undefined;
+        else if (typeof body.trailerUrl !== 'string' || !isSafeMediaUrl(body.trailerUrl.trim()) || /\/(?:audio|episodes)\//.test(body.trailerUrl)) return jsonError('ارفع لمحة صوتية عامة مستقلة عن ملف الحلقة المحمي');
+        else updates.trailerUrl = body.trailerUrl.trim();
+      }
+
       if (body.genres !== undefined) {
         const genres = parseStringArray(body.genres, MAX_GENRES, 50);
         if (genres === null) return jsonError('التصنيفات غير صالحة');
@@ -1031,6 +1062,7 @@ export async function PATCH(req: Request) {
         (series as any)[key] = value;
       }
       await series.save();
+      notifyContentChanged();
 
       const storageCleanup = await cleanupContentMedia(replacedMediaKeys);
 
@@ -1139,6 +1171,7 @@ export async function PATCH(req: Request) {
         (season as any)[key] = value;
       }
       await season.save();
+      notifyContentChanged();
 
       const diff = diffFields(before, {
         seasonNumber: season.seasonNumber,
@@ -1337,6 +1370,7 @@ export async function PATCH(req: Request) {
       }
 
       await episode.save();
+      notifyContentChanged();
 
       if (updates.durationMs !== undefined) {
         await syncSeriesCounters(episode.seriesId.toString());
@@ -1449,6 +1483,7 @@ export async function PATCH(req: Request) {
       const previousState = { isFree: episode.isFree };
       episode.isFree = isFree;
       await episode.save();
+      notifyContentChanged();
 
       await AdminAuditLog.create({
         adminUserId: admin.userId,
@@ -1483,6 +1518,7 @@ export async function PATCH(req: Request) {
     const previousState = { freeEpisodesCount: series.freeEpisodesCount };
     series.freeEpisodesCount = count;
     await series.save();
+    notifyContentChanged();
 
     await AdminAuditLog.create({
       adminUserId: admin.userId,
@@ -1591,6 +1627,7 @@ export async function DELETE(req: Request) {
         'posterUrl',
         'heroArtworkUrl',
         'shareVideoUrl',
+        'trailerUrl',
       ]);
       for (const episode of episodes as any[]) {
         mergeMediaKeys(
@@ -1611,6 +1648,17 @@ export async function DELETE(req: Request) {
       const deletedTranscripts = await Transcript.deleteMany({
         episodeId: { $in: episodeIds },
       });
+      // هذه هي أسماء مجموعات Mongoose الافتراضية لنماذج الإشعارات في المنصة العامة.
+      const notificationsDb = conn.connection.db;
+      const [deletedEpisodeNotifications, deletedSeriesFollows] =
+        notificationsDb
+          ? await Promise.all([
+              notificationsDb
+                .collection('episodenotifications')
+                .deleteMany({ seriesId: series._id }),
+              notificationsDb.collection('seriesfollows').deleteMany({ seriesId: series._id }),
+            ])
+          : [{ deletedCount: 0 }, { deletedCount: 0 }];
       await Episode.deleteMany({ seriesId: series._id });
       await Season.deleteMany({ _id: { $in: seasonIds } });
       await ShareAsset.deleteMany({ seriesId: series._id });
@@ -1634,6 +1682,8 @@ export async function DELETE(req: Request) {
           deletedEpisodes: episodeIds.length,
           deletedTranscripts: deletedTranscripts.deletedCount,
           deletedShareAssets: shareAssets.length,
+          deletedSeriesFollows: deletedSeriesFollows.deletedCount,
+          deletedEpisodeNotifications: deletedEpisodeNotifications.deletedCount,
           storageCleanup,
         },
       });
