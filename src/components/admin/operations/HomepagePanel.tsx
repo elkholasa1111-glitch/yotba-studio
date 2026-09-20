@@ -182,7 +182,11 @@ export const HomepagePanel: React.FC<HomepagePanelProps> = ({ onNotice }) => {
     setFormKey(sec.key);
     setFormTitle(sec.title);
     setFormSubtitle(sec.subtitle || '');
-    setFormLayout(sec.layout);
+    setFormLayout(
+      sec.sourceType === 'AUTOMATIC' && sec.autoRule === 'CONTINUE_LISTENING'
+        ? 'RAIL'
+        : sec.layout,
+    );
     setFormSourceType(sec.sourceType);
     setFormAutoRule(sec.autoRule || 'NEWEST');
     setFormCategoryId(sec.filterCategoryId || '');
@@ -266,8 +270,11 @@ export const HomepagePanel: React.FC<HomepagePanelProps> = ({ onNotice }) => {
 
     const payload: Record<string, unknown> = {
       title: formTitle.trim(),
-      subtitle: formSubtitle.trim() || undefined,
-      layout: formLayout,
+      subtitle: formSubtitle.trim(),
+      layout:
+        formSourceType === 'AUTOMATIC' && formAutoRule === 'CONTINUE_LISTENING'
+          ? 'RAIL'
+          : formLayout,
       sourceType: formSourceType,
       autoRule: formSourceType === 'AUTOMATIC' ? formAutoRule : undefined,
       filterCategoryId:
@@ -505,7 +512,10 @@ export const HomepagePanel: React.FC<HomepagePanelProps> = ({ onNotice }) => {
                           {sec.key}
                         </span>
                         <span className="text-[11px] px-2 py-0.5 rounded-full border border-border-subtle text-editorial-secondary">
-                          {LAYOUT_LABELS[sec.layout] || sec.layout}
+                          {sec.sourceType === 'AUTOMATIC' &&
+                          sec.autoRule === 'CONTINUE_LISTENING'
+                            ? 'شريط متابعة الاستماع'
+                            : LAYOUT_LABELS[sec.layout] || sec.layout}
                         </span>
                         {sec.sourceType === 'AUTOMATIC' ? (
                           <span className="text-[11px] px-2 py-0.5 rounded-full bg-blue-950/30 text-blue-300 border border-blue-900/40">
@@ -722,7 +732,11 @@ export const HomepagePanel: React.FC<HomepagePanelProps> = ({ onNotice }) => {
                 </label>
                 <select
                   id="sec-layout-select"
-                  value={formLayout}
+                  value={formSourceType === 'AUTOMATIC' && formAutoRule === 'CONTINUE_LISTENING' ? 'RAIL' : formLayout}
+                  disabled={
+                    formSourceType === 'AUTOMATIC' &&
+                    formAutoRule === 'CONTINUE_LISTENING'
+                  }
                   onChange={(e) => {
                     setFormLayout(e.target.value as HomepageSectionLayout);
                     setFormHasChanges(true);
@@ -788,9 +802,11 @@ export const HomepagePanel: React.FC<HomepagePanelProps> = ({ onNotice }) => {
                       id="sec-autorule-select"
                       value={formAutoRule}
                       onChange={(e) => {
-                        setFormAutoRule(
-                          e.target.value as HomepageSectionAutoRule,
-                        );
+                        const nextRule = e.target.value as HomepageSectionAutoRule;
+                        setFormAutoRule(nextRule);
+                        if (nextRule === 'CONTINUE_LISTENING') {
+                          setFormLayout('RAIL');
+                        }
                         setFormHasChanges(true);
                       }}
                       className="min-h-11 w-full rounded-lg border border-border-subtle bg-obsidian-850 px-3 text-xs text-editorial-ivory focus:border-crimson focus:outline-none"
@@ -803,6 +819,11 @@ export const HomepagePanel: React.FC<HomepagePanelProps> = ({ onNotice }) => {
                         ),
                       )}
                     </select>
+                    {formAutoRule === 'CONTINUE_LISTENING' && (
+                      <p className="mt-1 text-[11px] text-editorial-secondary">
+                        شريط أفقي من سجل كل مستمع؛ يظهر فقط لمن لديه حلقات لم يكملها.
+                      </p>
+                    )}
                   </div>
 
                   {formAutoRule === 'GENRE_FILTER' && (
