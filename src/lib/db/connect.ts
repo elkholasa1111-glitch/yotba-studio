@@ -17,6 +17,11 @@ function getCache(): MongooseCache {
   return global.mongooseCache;
 }
 
+function sanitizeMongoError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.replace(/mongodb(\+srv)?:\/\/[^\s]+/gi, '[REDACTED_URI]');
+}
+
 export async function connectDB(): Promise<typeof mongoose | null> {
   const uri = normalizeEnv(process.env.MONGODB_URI);
   if (!uri) {
@@ -33,16 +38,26 @@ export async function connectDB(): Promise<typeof mongoose | null> {
 
   // 2. إذا كان الاتصال المحفوظ منقطعاً أو في حالة غير متصلة (stale / disconnected)،
   // نلغي الكاش الميت والوعد المرتبط به لتمكين إعادة الاتصال بأمان
-  if (cache.conn && cache.conn.connection.readyState !== 1) {
+  if (cache.conn && cache.conn.connection.readyState !== 1 && cache.conn.connection.readyState !== 2) {
     cache.conn = null;
     cache.promise = null;
   }
 
   // 3. منع الاتصالات المكررة المتزامنة (Single-flight): إذا كان هناك طلب اتصال جارٍ ننتظره
+  if (!cache.promise && cache.conn?.connection.readyState === 2) {
+    const connecting = cache.conn;
+    cache.promise = connecting.connection.asPromise().then(() => connecting);
+  }
   if (!cache.promise) {
     const opts = {
       bufferCommands: false,
-      maxPoolSize: 10,
+      // Pool limits apply per instance, not across the whole Vercel project.
+      appName: 'yotba-studio',
+      maxPoolSize: 5,
+      minPoolSize: 0,
+      maxIdleTimeMS: 60000,
+      maxConnecting: 1,
+      waitQueueTimeoutMS: 10000,
       serverSelectionTimeoutMS: 10000,
       socketTimeoutMS: 45000,
     };
@@ -51,7 +66,7 @@ export async function connectDB(): Promise<typeof mongoose | null> {
       console.log('✅ Connected successfully to MongoDB Atlas');
       return m;
     }).catch((err) => {
-      console.error('❌ MongoDB Atlas connection error:', err);
+      console.error('❌ MongoDB Atlas connection error:', sanitizeMongoError(err));
       throw err;
     });
   }
@@ -109,19 +124,15 @@ export async function checkDatabaseHealth(timeoutMs: number = 5000): Promise<Dat
       .then(async (conn) => {
         if (!conn) return null;
         if (conn.connection.readyState === 1) {
-          try {
-            if (conn.connection.db) {
-              await conn.connection.db.command({ ping: 1 });
-            }
-          } catch (pingErr) {
-            console.warn('MongoDB ping command warning (continuing with readyState 1):', pingErr);
+          if (conn.connection.db) {
+            await conn.connection.db.command({ ping: 1 });
           }
           return conn;
         }
         return null;
       })
       .catch((err) => {
-        console.error('Database connection failed during health check:', err);
+        console.error('Database connection failed during health check:', sanitizeMongoError(err));
         return null;
       });
     const timeoutPromise = new Promise<never>((_, reject) => {
@@ -151,7 +162,7 @@ export async function checkDatabaseHealth(timeoutMs: number = 5000): Promise<Dat
   } catch (error) {
     if (timer) clearTimeout(timer);
     const isTimeout = error instanceof Error && error.message === 'TIMEOUT';
-    console.error('checkDatabaseHealth catch error:', error);
+    console.error('checkDatabaseHealth catch error:', sanitizeMongoError(error));
     return {
       provider: 'mongodb_atlas',
       configured: true,

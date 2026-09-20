@@ -11,7 +11,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import mongoose from 'mongoose';
-import { connectDB } from '../lib/db/connect';
+import { connectDB, checkDatabaseHealth } from '../lib/db/connect';
 import {
   isAuthorizedPreviewRole,
   isAuthorizedPricingMutationRole,
@@ -1076,8 +1076,14 @@ async function runTests() {
     let connectCalls = 0;
     const connectedInstance = createMockMongoose(1);
 
-    (mongoose as any).connect = async () => {
+    (mongoose as any).connect = async (_uri: string, options: any) => {
       connectCalls++;
+      assert.equal(options.maxPoolSize, 5);
+      assert.equal(options.minPoolSize, 0);
+      assert.equal(options.maxIdleTimeMS, 60000);
+      assert.equal(options.maxConnecting, 1);
+      assert.equal(options.waitQueueTimeoutMS, 10000);
+      assert.equal(options.appName, 'yotba-studio');
       return connectedInstance;
     };
 
@@ -1170,6 +1176,26 @@ async function runTests() {
     assert.equal(recoveredConn, connectedInstance, 'Subsequent call must succeed and retry after failure');
     assert.equal(connectCalls, 2, 'Subsequent call must invoke connect again');
     assert.equal(global.mongooseCache?.promise, null, 'Promise must be safely zeroed after successful retry');
+
+    // A reconnecting cached client must share its flight instead of opening another.
+    const reconnectingInstance = createMockMongoose(2);
+    let finishReconnect!: (value: any) => void;
+    const reconnectFlight = new Promise<any>((resolve) => { finishReconnect = resolve; });
+    reconnectingInstance.connection.asPromise = () => reconnectFlight;
+    global.mongooseCache = { conn: reconnectingInstance, promise: null };
+    (mongoose as any).connect = async () => { throw new Error('Must reuse reconnecting pool'); };
+    const waiting = Array.from({ length: 20 }, () => connectDB());
+    reconnectingInstance.connection.readyState = 1;
+    finishReconnect(reconnectingInstance);
+    for (const result of await Promise.all(waiting)) assert.equal(result, reconnectingInstance);
+
+    // Health must report real ping failure without throwing away a reusable pool.
+    reconnectingInstance.connection.db.command = async () => { throw new Error('Temporary ping failure'); };
+    const health = await checkDatabaseHealth();
+    assert.equal(health.connected, false);
+    assert.equal(health.status, 'connection_failed');
+    assert.equal(global.mongooseCache?.conn, reconnectingInstance);
+    assert.equal(await connectDB(), reconnectingInstance);
   } finally {
     process.env.MONGODB_URI = origMongoUri;
     mongoose.connect = origConnect;
