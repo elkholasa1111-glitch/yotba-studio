@@ -1,5 +1,8 @@
 import mongoose from 'mongoose';
 import { normalizeEnv } from '@/lib/config/runtime';
+import { configureLocalDns } from './local-dns';
+
+configureLocalDns();
 
 interface MongooseCache {
   conn: typeof mongoose | null;
