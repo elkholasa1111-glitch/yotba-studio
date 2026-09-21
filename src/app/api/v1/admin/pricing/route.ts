@@ -33,6 +33,9 @@ export async function GET() {
   if (!admin) {
     return jsonError('غير مصرح لك — يرجى تسجيل الدخول', 401);
   }
+  if (!isAuthorizedPricingMutationRole(admin.role)) {
+    return jsonError('ليس لديك صلاحية عرض الأسعار المركزية للمنصة', 403);
+  }
 
   const conn = await connectDB();
   if (!conn) {

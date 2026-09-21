@@ -7,10 +7,15 @@ import { getCurrentAdmin } from '@/lib/auth';
 import { connectDB } from '@/lib/db/connect';
 import { ProductEvent, Purchase, Subscription, User } from '@/lib/db/models';
 
+const ANALYTICS_READ_ROLES = ['SUPER_ADMIN', 'ADMIN', 'ANALYTICS_VIEWER'];
+
 export async function GET() {
   const admin = await getCurrentAdmin();
   if (!admin) {
     return NextResponse.json({ error: 'غير مصرح لك' }, { status: 401 });
+  }
+  if (!ANALYTICS_READ_ROLES.includes(admin.role)) {
+    return NextResponse.json({ error: 'ليس لديك صلاحية عرض التحليلات' }, { status: 403 });
   }
 
   const conn = await connectDB();

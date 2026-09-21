@@ -7,7 +7,7 @@ import { getCurrentAdmin } from '@/lib/auth';
 import { checkDatabaseHealth } from '@/lib/db/connect';
 import { checkStorageHealth } from '@/lib/storage';
 import { isProductionRuntime } from '@/lib/config/runtime';
-import { jsonOk, jsonError } from '@/lib/admin/operations-api';
+import { canManageOperations, jsonOk, jsonError } from '@/lib/admin/operations-api';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -16,6 +16,9 @@ export async function GET() {
   const admin = await getCurrentAdmin();
   if (!admin) {
     return jsonError('غير مصرح لك — يرجى تسجيل الدخول كمسؤول', 401);
+  }
+  if (!canManageOperations(admin.role)) {
+    return jsonError('ليس لديك صلاحية عرض حالة البنية التحتية', 403);
   }
 
   try {

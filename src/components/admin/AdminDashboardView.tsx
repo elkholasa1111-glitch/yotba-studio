@@ -41,6 +41,8 @@ import { AdminSettingsView } from './views/AdminSettingsView';
 import { UsersPanel } from './operations/UsersPanel';
 import { EntitlementsPanel } from './operations/EntitlementsPanel';
 import { HomepagePanel } from './operations/HomepagePanel';
+import { TeamPanel } from './operations/TeamPanel';
+import { canAccessAdminSection } from '@/lib/admin/access';
 import { AdminUserDTO } from './operations/types';
 import { resolvePublicPlatformUrl } from '@/lib/config/public-platform';
 
@@ -56,6 +58,7 @@ export type AdminSection =
   | 'comments'
   | 'homepage'
   | 'settings'
+  | 'team'
   | 'categories';
 
 interface FunnelStep {
@@ -122,13 +125,18 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { id: 'dashboard', label: 'نظرة عامة', icon: LayoutDashboard },
       { id: 'settings', label: 'الإعدادات', icon: Settings },
+      { id: 'team', label: 'فريق العمل', icon: Shield },
     ],
   },
 ];
 
-export const AdminDashboardView: React.FC = () => {
+export const AdminDashboardView: React.FC<{ adminRole: string }> = ({ adminRole }) => {
   const router = useRouter();
-  const [activeSection, setActiveSection] = useState<AdminSection>('series');
+  const navGroups = NAV_GROUPS.map(group => ({ ...group, items: group.items.filter(item => canAccessAdminSection(adminRole, item.id)) })).filter(group => group.items.length > 0);
+  const [activeSection, setActiveSection] = useState<AdminSection>(adminRole === 'MODERATOR' ? 'comments' : adminRole === 'ANALYTICS_VIEWER' ? 'dashboard' : 'series');
+  const canReadContent = canAccessAdminSection(adminRole, 'series');
+  const canReadAnalytics = canAccessAdminSection(adminRole, 'dashboard');
+  const canReadAudit = adminRole === 'SUPER_ADMIN' || adminRole === 'ADMIN';
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   // Content Data
@@ -228,33 +236,33 @@ export const AdminDashboardView: React.FC = () => {
 
     try {
       const [contentRes, analyticsRes, auditRes] = await Promise.all([
-        readJson('/api/v1/admin/content'),
-        readJson('/api/v1/admin/analytics'),
-        readJson('/api/v1/admin/audit-log?limit=50'),
+        canReadContent ? readJson('/api/v1/admin/content') : null,
+        canReadAnalytics ? readJson('/api/v1/admin/analytics') : null,
+        canReadAudit ? readJson('/api/v1/admin/audit-log?limit=50') : null,
       ]);
 
       const failedSources: string[] = [];
 
-      if (contentRes.ok && Array.isArray(contentRes.data?.series)) {
+      if (contentRes?.ok && Array.isArray(contentRes.data?.series)) {
         setSeriesList(contentRes.data.series as AdminSeriesDTO[]);
-      } else {
+      } else if (contentRes) {
         failedSources.push('المحتوى');
       }
 
       if (
-        analyticsRes.ok &&
+        analyticsRes?.ok &&
         analyticsRes.data?.totals &&
         Array.isArray(analyticsRes.data.funnel)
       ) {
         setTotals(analyticsRes.data.totals as unknown as Totals);
         setFunnel(analyticsRes.data.funnel as unknown as FunnelStep[]);
-      } else {
+      } else if (analyticsRes) {
         failedSources.push('التحليلات');
       }
 
-      if (auditRes.ok && Array.isArray(auditRes.data?.logs)) {
+      if (auditRes?.ok && Array.isArray(auditRes.data?.logs)) {
         setAuditLogs(auditRes.data.logs as unknown as AuditLogItem[]);
-      } else {
+      } else if (auditRes) {
         failedSources.push('سجل التدقيق');
       }
 
@@ -269,7 +277,7 @@ export const AdminDashboardView: React.FC = () => {
       setIsLoading(false);
       setIsRefreshing(false);
     }
-  }, []);
+  }, [canReadContent, canReadAnalytics, canReadAudit]);
 
   useEffect(() => {
     fetchData();
@@ -277,6 +285,7 @@ export const AdminDashboardView: React.FC = () => {
 
   const navigateToSection = useCallback(
     (section: AdminSection, preserveContext = false) => {
+      if (!canAccessAdminSection(adminRole, section)) return;
       setActiveSection(section);
       if (!preserveContext) {
         setNavSeriesId(null);
@@ -284,7 +293,7 @@ export const AdminDashboardView: React.FC = () => {
         setNavEpisodeId(null);
       }
     },
-    [],
+    [adminRole],
   );
 
   // Seamless navigation handlers
@@ -424,7 +433,7 @@ export const AdminDashboardView: React.FC = () => {
           </div>
 
           <div className="p-3 space-y-6">
-            {NAV_GROUPS.map((group) => (
+            {navGroups.map((group) => (
               <div key={group.title} className="space-y-1">
                 <div className="px-3 text-[10px] font-bold uppercase tracking-wider text-editorial-muted">
                   {group.title}
@@ -497,7 +506,7 @@ export const AdminDashboardView: React.FC = () => {
               </div>
 
               <div className="space-y-5">
-                {NAV_GROUPS.map((group) => (
+                {navGroups.map((group) => (
                   <div key={group.title} className="space-y-1">
                     <div className="px-2 text-[10px] font-bold text-editorial-muted">
                       {group.title}
@@ -801,6 +810,9 @@ export const AdminDashboardView: React.FC = () => {
                 {/* 10. Platform Settings & Health */}
                 {activeSection === 'settings' && (
                   <AdminSettingsView onNotice={showNotice} />
+                )}
+                {activeSection === 'team' && adminRole === 'SUPER_ADMIN' && (
+                  <TeamPanel onNotice={showNotice} />
                 )}
               </>
             )}

@@ -304,10 +304,6 @@ export async function POST(request: Request) {
         role: 'SUPER_ADMIN',
         status: 'ACTIVE',
       });
-    } else if (admin && isEnvAdminMatch && !(await verifyPassword(password, admin.passwordHash))) {
-      const { hashPassword } = await import('@/lib/auth');
-      admin.passwordHash = await hashPassword(password);
-      await admin.save();
     } else if (!admin || !(await verifyPassword(password, admin.passwordHash))) {
       return NextResponse.json(
         { error: 'بيانات الدخول غير صحيحة' },
@@ -322,12 +318,14 @@ export async function POST(request: Request) {
       );
     }
 
+    await AdminUser.updateOne({ _id: admin._id }, { $set: { lastLoginAt: new Date() } });
     const token = signSessionToken({
       userId: admin._id.toString(),
       email: admin.email,
       displayName: admin.displayName,
       role: admin.role,
       isAdmin: true,
+      sessionVersion: admin.sessionVersion ?? 0,
     });
     await setAuthCookie(token, true);
 

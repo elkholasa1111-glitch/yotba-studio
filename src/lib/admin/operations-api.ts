@@ -98,7 +98,7 @@ export function normalizeSectionKey(input: string): string {
 export interface AuditLogParams {
   adminUserId: string;
   action: string;
-  targetEntity: 'User' | 'Entitlement' | 'HomepageSection';
+  targetEntity: 'User' | 'Entitlement' | 'HomepageSection' | 'AdminUser';
   entityId: string;
   previousState?: Record<string, unknown> | null;
   newState?: Record<string, unknown> | null;

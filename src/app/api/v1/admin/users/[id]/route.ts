@@ -8,6 +8,7 @@ import { User, Entitlement, Purchase, Subscription } from '@/lib/db/models';
 import {
   jsonOk,
   jsonError,
+  canManageOperations,
   isValidMongoId,
   cleanText,
 } from '@/lib/admin/operations-api';
@@ -19,6 +20,9 @@ export async function GET(
   const admin = await getCurrentAdmin();
   if (!admin) {
     return jsonError('غير مصرح لك بالوصول', 401);
+  }
+  if (!canManageOperations(admin.role)) {
+    return jsonError('ليس لديك صلاحية عرض بيانات المستخدمين (مطلوب ADMIN أو SUPER_ADMIN)', 403);
   }
 
   const conn = await connectDB();

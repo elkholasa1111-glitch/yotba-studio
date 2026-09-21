@@ -2,12 +2,16 @@ import { NextResponse } from 'next/server';
 import { getCurrentAdmin } from '@/lib/auth';
 import { connectDB } from '@/lib/db/connect';
 import { AdminAuditLog } from '@/lib/db/models';
+import { canManageOperations } from '@/lib/admin/operations-api';
 
 // GET: جلب سجل تدقيق الإدارة (الأحدث أولاً)
 export async function GET(req: Request) {
   const admin = await getCurrentAdmin();
   if (!admin) {
     return NextResponse.json({ error: 'غير مصرح لك' }, { status: 401 });
+  }
+  if (!canManageOperations(admin.role)) {
+    return NextResponse.json({ error: 'ليس لديك صلاحية عرض سجل التدقيق' }, { status: 403 });
   }
 
   const { searchParams } = new URL(req.url);

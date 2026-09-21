@@ -5,6 +5,7 @@ import { cookies } from 'next/headers';
 import { User, AdminUser } from '@/lib/db/models';
 import { connectDB } from '@/lib/db/connect';
 import { isDemoMode, isProductionRuntime, normalizeEnv } from '@/lib/config/runtime';
+import { isCurrentAdminSession } from '@/lib/admin/access';
 
 const JWT_SECRET = normalizeEnv(process.env.JWT_SECRET);
 
@@ -22,6 +23,7 @@ export interface TokenPayload {
   displayName: string;
   role: 'USER' | 'SUPER_ADMIN' | 'ADMIN' | 'CONTENT_EDITOR' | 'MODERATOR' | 'ANALYTICS_VIEWER';
   isAdmin?: boolean;
+  sessionVersion?: number;
 }
 
 /**
@@ -132,8 +134,8 @@ export async function getCurrentAdmin(): Promise<TokenPayload | null> {
   try {
     const conn = await connectDB();
     if (!conn) return isDemoMode() ? payload : null;
-    const admin = await AdminUser.findById(payload.userId).select('status email displayName role');
-    if (!admin || admin.status !== 'ACTIVE') return null;
+    const admin = await AdminUser.findById(payload.userId).select('status email displayName role sessionVersion');
+    if (!admin || !isCurrentAdminSession(payload.sessionVersion, admin)) return null;
     return { ...payload, email: admin.email, displayName: admin.displayName, role: admin.role };
   } catch {
     return isDemoMode() ? payload : null;

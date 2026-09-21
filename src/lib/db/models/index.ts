@@ -38,6 +38,7 @@ const AdminUserSchema = new Schema(
     },
     status: { type: String, enum: ['ACTIVE', 'SUSPENDED'], default: 'ACTIVE' },
     twoFactorSecret: { type: String },
+    sessionVersion: { type: Number, default: 0 },
     lastLoginAt: { type: Date },
   },
   { timestamps: true }

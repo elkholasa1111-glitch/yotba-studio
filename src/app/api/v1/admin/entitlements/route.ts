@@ -28,6 +28,9 @@ export async function GET(req: Request) {
   if (!admin) {
     return jsonError('غير مصرح لك بالوصول', 401);
   }
+  if (!canManageOperations(admin.role)) {
+    return jsonError('ليس لديك صلاحية عرض الاستحقاقات (مطلوب ADMIN أو SUPER_ADMIN)', 403);
+  }
 
   const conn = await connectDB();
   if (!conn) {

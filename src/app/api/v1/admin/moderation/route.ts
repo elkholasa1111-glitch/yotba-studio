@@ -8,11 +8,16 @@ import { getCurrentAdmin } from '@/lib/auth';
 import { connectDB } from '@/lib/db/connect';
 import { CommentReport, Comment, User, AdminAuditLog } from '@/lib/db/models';
 
+const MODERATION_ROLES = ['SUPER_ADMIN', 'ADMIN', 'MODERATOR'];
+
 // GET: جلب البلاغات المعلقة
 export async function GET() {
   const admin = await getCurrentAdmin();
   if (!admin) {
     return NextResponse.json({ error: 'غير مصرح لك' }, { status: 401 });
+  }
+  if (!MODERATION_ROLES.includes(admin.role)) {
+    return NextResponse.json({ error: 'ليس لديك صلاحية الإشراف' }, { status: 403 });
   }
 
   const conn = await connectDB();
@@ -62,7 +67,7 @@ export async function POST(req: Request) {
   if (!admin) {
     return NextResponse.json({ error: 'غير مصرح لك' }, { status: 401 });
   }
-  if (!['SUPER_ADMIN', 'ADMIN', 'MODERATOR'].includes(admin.role)) {
+  if (!MODERATION_ROLES.includes(admin.role)) {
     return NextResponse.json({ error: 'ليس لديك صلاحية الإشراف' }, { status: 403 });
   }
 

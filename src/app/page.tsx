@@ -13,5 +13,5 @@ export default async function StudioHomePage() {
   if (!admin) {
     redirect('/login');
   }
-  return <AdminDashboardView />;
+  return <AdminDashboardView adminRole={admin.role} />;
 }
